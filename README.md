@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="icon.png" alt="ikcon" width="150">
+</p>
+
 # LyricsPlayer
 > 기타 음악 스트리밍 서비스의 실시간 가사 스타일의 영감을 받은 가사 플레이어입니다.
 
