@@ -20,7 +20,3 @@ LyricsPlayer는 `C:\Users\USER\Videos` 폴더에 있는 MP4 파일을 자동으�
 
 ## 스크린샷
 <img width="657" height="388" alt="image" src="https://github.com/user-attachments/assets/98da56d7-9ddf-4f5a-b5b8-8315f6acb7de" />
-
-## License
-This project is licensed under the  
-Creative Commons Attribution-NonCommercial 4.0 International License.
