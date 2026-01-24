@@ -3,6 +3,10 @@
 </p>
 
 # LyricsPlayer
+[![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
+[![Windows](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows)](https://www.microsoft.com/windows)
+[![License](https://img.shields.io/badge/License-GPL3.0-green.svg)](LICENSE)
+
 > 기타 음악 스트리밍 서비스의 실시간 가사 스타일의 영감을 받은 가사 플레이어입니다.
 
 ## 개요
