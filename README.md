@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="icon.png" alt="ikcon" width="150">
+  <img src="Assets/icon.png" alt="ikcon" width="150">
 </p>
 
 # LyricsPlayer
