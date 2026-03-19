@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 
-namespace LyricsPlayer {
+using LyricsPlayer.Models;
+
+namespace LyricsPlayer.Parsers {
 	public static class SrtParser {
 		private static readonly Regex TimeRegex = new Regex(
 			@"(?<h>\d{{2}}):(?<m>\d{{2}}):(?<s>\d{{2}}),(?<ms>\d{{3}})",

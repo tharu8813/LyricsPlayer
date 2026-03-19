@@ -1,4 +1,4 @@
-using LyricsPlayer;
+using LyricsPlayer.UI.Forms;
 
 namespace WinFormsApp1 {
 	internal static class Program {

@@ -1,6 +1,10 @@
 using WMPLib;
 
-namespace LyricsPlayer {
+using LyricsPlayer.Core;
+using LyricsPlayer.UI.Rendering;
+using LyricsPlayer.Models;
+
+namespace LyricsPlayer.UI.Forms {
 	public partial class MainForm : Form {
 		private MediaLyricsSync _sync;
 		private LyricsRenderer _mainRenderer;
@@ -95,38 +99,55 @@ namespace LyricsPlayer {
 			}
 		}
 
+		protected override void OnFormClosing(FormClosingEventArgs e) {
+			_watcher?.Dispose();
+			_mainRenderer?.Dispose();
+			base.OnFormClosing(e);
+		}
+
 		private void RefreshPlaylist() {
-			string videosPath = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
-			var mediaPath = Path.Combine(videosPath, "LyricsPlayer");
-			var mediaFiles = Directory.GetFiles(mediaPath, "*.mp4")
-									  .Concat(Directory.GetFiles(mediaPath, "*.mp3"))
-									  .Concat(Directory.GetFiles(mediaPath, "*.wmv"))
-									  .ToList();
-
-			var currentPlaylistFiles = new List<string>();
-			for(int i = 0; i < _playlist.count; i++) {
-				currentPlaylistFiles.Add(_playlist.Item[i].sourceURL);
+			if(InvokeRequired) {
+				Invoke(new Action(RefreshPlaylist));
+				return;
 			}
 
-			foreach(var file in mediaFiles) {
-				if(!currentPlaylistFiles.Contains(file, StringComparer.OrdinalIgnoreCase)) {
-					_playlist.appendItem(player.newMedia(file));
+			try {
+				string videosPath = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+				var mediaPath = Path.Combine(videosPath, "LyricsPlayer");
+				if(!Directory.Exists(mediaPath)) return;
+
+				var mediaFiles = Directory.GetFiles(mediaPath, "*.mp4")
+										  .Concat(Directory.GetFiles(mediaPath, "*.mp3"))
+										  .Concat(Directory.GetFiles(mediaPath, "*.wmv"))
+										  .ToList();
+
+				var currentPlaylistFiles = new List<string>();
+				for(int i = 0; i < _playlist.count; i++) {
+					currentPlaylistFiles.Add(_playlist.Item[i].sourceURL);
 				}
-			}
 
-			for(int i = _playlist.count - 1; i >= 0; i--) {
-				var item = _playlist.Item[i];
-				if(!mediaFiles.Contains(item.sourceURL, StringComparer.OrdinalIgnoreCase)) {
-					_playlist.removeItem(item);
+				foreach(var file in mediaFiles) {
+					if(!currentPlaylistFiles.Contains(file, StringComparer.OrdinalIgnoreCase)) {
+						_playlist.appendItem(player.newMedia(file));
+					}
 				}
-			}
 
-			var playlistItems = new System.Collections.Generic.List<IWMPMedia>();
-			for(int i = 0; i < _playlist.count; i++) {
-				playlistItems.Add(_playlist.Item[i]);
+				for(int i = _playlist.count - 1; i >= 0; i--) {
+					var item = _playlist.Item[i];
+					if(!mediaFiles.Contains(item.sourceURL, StringComparer.OrdinalIgnoreCase)) {
+						_playlist.removeItem(item);
+					}
+				}
+
+				var playlistItems = new System.Collections.Generic.List<IWMPMedia>();
+				for(int i = 0; i < _playlist.count; i++) {
+					playlistItems.Add(_playlist.Item[i]);
+				}
+				dataGridView1.DataSource = null;
+				dataGridView1.DataSource = playlistItems;
+			} catch(Exception ex) {
+				System.Diagnostics.Debug.WriteLine($"[MainForm] Error Refreshing Playlist: {ex.Message}");
 			}
-			dataGridView1.DataSource = null;
-			dataGridView1.DataSource = playlistItems;
 		}
 
 		private void Player_CurrentItemChange(object sender, AxWMPLib._WMPOCXEvents_CurrentItemChangeEvent e) {
@@ -170,7 +191,20 @@ namespace LyricsPlayer {
 				_pipForm = new LyricsPipForm();
 				var pipRenderer = new LyricsRenderer(_pipForm.LyricsHostPanel);
 				_sync.AddRenderer(pipRenderer);
-				_pipForm.FormClosed += (s, args) => _sync.RemoveRenderer(pipRenderer);
+
+				// 재생 상태 업데이트 연결
+				Action<string, string, string> statusUpdater = (title, cur, total) => {
+					if(_pipForm != null && !_pipForm.IsDisposed) {
+						_pipForm.UpdateStatus(title, cur, total);
+					}
+				};
+				_sync.OnStatusUpdated += statusUpdater;
+
+				_pipForm.FormClosed += (s, args) => {
+					_sync.RemoveRenderer(pipRenderer);
+					_sync.OnStatusUpdated -= statusUpdater;
+					_pipForm = null;
+				};
 				_pipForm.Show();
 			} else {
 				_pipForm.Activate();

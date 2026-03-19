@@ -1,4 +1,4 @@
-namespace LyricsPlayer {
+namespace LyricsPlayer.UI.Forms {
 	public partial class LyricsPipForm : Form {
 		private const int WM_NCLBUTTONDOWN = 0xA1;
 		private const int HT_CAPTION = 0x2;
@@ -11,13 +11,25 @@ namespace LyricsPlayer {
 		private Button closeButton;
 		public Panel LyricsHostPanel;
 		private Panel panel1;
+		private Panel statusPanel;
+		private Label lblTitle;
+		private Label lblTime;
 
 		public LyricsPipForm() {
 			InitializeComponent();
 
-			this.MinimumSize = new Size(200, 100);
-			this.MaximumSize = new Size(1000, 700);
+			this.MinimumSize = new Size(300, 120);
+			this.MaximumSize = new Size(1200, 800);
 			this.LyricsHostPanel.MouseDown += LyricsHostPanel_MouseDown;
+		}
+
+		public void UpdateStatus(string title, string currentTime, string totalTime) {
+			if (InvokeRequired) {
+				Invoke(new Action(() => UpdateStatus(title, currentTime, totalTime)));
+				return;
+			}
+			lblTitle.Text = title;
+			lblTime.Text = $"{currentTime} / {totalTime}";
 		}
 
 		private void panel1_MouseDown(object sender, MouseEventArgs e) {
@@ -84,7 +96,11 @@ namespace LyricsPlayer {
 			closeButton = new Button();
 			LyricsHostPanel = new Panel();
 			panel1 = new Panel();
+			statusPanel = new Panel();
+			lblTitle = new Label();
+			lblTime = new Label();
 			panel1.SuspendLayout();
+			statusPanel.SuspendLayout();
 			SuspendLayout();
 			// 
 			// closeButton
@@ -96,7 +112,7 @@ namespace LyricsPlayer {
 			closeButton.FlatStyle = FlatStyle.Flat;
 			closeButton.Font = new Font("Arial", 10F, FontStyle.Bold);
 			closeButton.ForeColor = Color.Gainsboro;
-			closeButton.Location = new Point(582, 0);
+			closeButton.Location = new Point(562, 0);
 			closeButton.Name = "closeButton";
 			closeButton.Size = new Size(35, 28);
 			closeButton.TabIndex = 0;
@@ -106,32 +122,66 @@ namespace LyricsPlayer {
 			// 
 			// LyricsHostPanel
 			// 
-			LyricsHostPanel.BackColor = Color.FromArgb(32, 32, 32);
-			LyricsHostPanel.BorderStyle = BorderStyle.FixedSingle;
+			LyricsHostPanel.BackColor = Color.FromArgb(24, 24, 24);
 			LyricsHostPanel.Dock = DockStyle.Fill;
 			LyricsHostPanel.Location = new Point(3, 33);
-			LyricsHostPanel.Margin = new Padding(5);
 			LyricsHostPanel.Name = "LyricsHostPanel";
-			LyricsHostPanel.Size = new Size(619, 137);
+			LyricsHostPanel.Size = new Size(599, 109);
 			LyricsHostPanel.TabIndex = 0;
 			// 
 			// panel1
 			// 
 			panel1.BackColor = Color.FromArgb(32, 32, 32);
-			panel1.BorderStyle = BorderStyle.FixedSingle;
 			panel1.Controls.Add(closeButton);
 			panel1.Dock = DockStyle.Top;
 			panel1.Location = new Point(3, 3);
 			panel1.Name = "panel1";
-			panel1.Size = new Size(619, 30);
+			panel1.Size = new Size(599, 30);
 			panel1.TabIndex = 2;
 			panel1.MouseDown += panel1_MouseDown;
 			// 
+			// statusPanel
+			// 
+			statusPanel.BackColor = Color.FromArgb(40, 0, 0, 0);
+			statusPanel.Controls.Add(lblTime);
+			statusPanel.Controls.Add(lblTitle);
+			statusPanel.Dock = DockStyle.Bottom;
+			statusPanel.Location = new Point(3, 142);
+			statusPanel.Name = "statusPanel";
+			statusPanel.Padding = new Padding(10, 0, 10, 0);
+			statusPanel.Size = new Size(599, 28);
+			statusPanel.TabIndex = 3;
+			// 
+			// lblTitle
+			// 
+			lblTitle.Dock = DockStyle.Fill;
+			lblTitle.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+			lblTitle.ForeColor = Color.DeepSkyBlue;
+			lblTitle.Location = new Point(10, 0);
+			lblTitle.Name = "lblTitle";
+			lblTitle.Size = new Size(579, 28);
+			lblTitle.TabIndex = 0;
+			lblTitle.Text = "Title";
+			lblTitle.TextAlign = ContentAlignment.MiddleLeft;
+			// 
+			// lblTime
+			// 
+			lblTime.Dock = DockStyle.Right;
+			lblTime.Font = new Font("Segoe UI Semibold", 8.5F);
+			lblTime.ForeColor = Color.Gainsboro;
+			lblTime.Location = new Point(449, 0);
+			lblTime.Name = "lblTime";
+			lblTime.Size = new Size(140, 28);
+			lblTime.TabIndex = 1;
+			lblTime.Text = "00:00 / 00:00";
+			lblTime.TextAlign = ContentAlignment.MiddleRight;
+			// 
 			// LyricsPipForm
 			// 
-			BackColor = Color.DimGray;
-			ClientSize = new Size(625, 173);
+			BackColor = Color.FromArgb(45, 45, 48);
+			ClientSize = new Size(605, 173);
 			Controls.Add(LyricsHostPanel);
+			Controls.Add(statusPanel);
 			Controls.Add(panel1);
 			FormBorderStyle = FormBorderStyle.None;
 			Icon = (Icon)resources.GetObject("$this.Icon");
@@ -141,6 +191,7 @@ namespace LyricsPlayer {
 			Text = "Lyrics PIP";
 			TopMost = true;
 			panel1.ResumeLayout(false);
+			statusPanel.ResumeLayout(false);
 			ResumeLayout(false);
 
 		}

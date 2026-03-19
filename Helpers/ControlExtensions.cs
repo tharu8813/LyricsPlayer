@@ -1,6 +1,6 @@
 ﻿using System.Reflection;
 
-namespace LyricsPlayer {
+namespace LyricsPlayer.Helpers {
 	public static class ControlExtensions {
 		/// <summary>
 		/// WinForms 컨트롤에 런타임으로 DoubleBuffered를 켭니다.
