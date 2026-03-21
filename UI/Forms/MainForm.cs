@@ -1,214 +1,318 @@
-using WMPLib;
-
+using LibVLCSharp.Shared;
 using LyricsPlayer.Core;
+using LyricsPlayer.Forms;
+using LyricsPlayer.Helpers;
+using LyricsPlayer.UI.Controls;
 using LyricsPlayer.UI.Rendering;
-using LyricsPlayer.Models;
+using System.Diagnostics;
 
 namespace LyricsPlayer.UI.Forms {
-	public partial class MainForm : Form {
-		private MediaLyricsSync _sync;
-		private LyricsRenderer _mainRenderer;
-		private LyricsPipForm _pipForm;
-		private IWMPPlaylist _playlist;
-		private FileSystemWatcher _watcher;
+    public partial class MainForm : Form {
+        private LibVLC _libVLC;
+        private MediaPlayer _mp;
+        private MediaLyricsSync _sync;
+        private LyricsRenderer _mainRenderer;
+        private LyricsPipForm _pipForm;
+        private List<PlaylistItem> _allFiles = new();
+        private FileSystemWatcher _watcher;
 
-		public MainForm() {
-			InitializeComponent();
-		}
+        private bool _isUserSeeking = false;
+        private string _currentPlayingPath = "";
 
-		private void Form1_Load(object sender, EventArgs e) {
-			this.Shown += MainForm_Shown;
+        public MainForm() {
+            LibVLCSharp.Shared.Core.Initialize();
+            _libVLC = new LibVLC();
+            _mp = new MediaPlayer(_libVLC) {
+                EnableMouseInput = false,
+                EnableKeyInput = false
+            };
 
-			_sync = new MediaLyricsSync(player, tmrSync);
-			_mainRenderer = new LyricsRenderer(pnlLyricsHost);
-			_sync.AddRenderer(_mainRenderer);
-			_sync.OnLyricClicked = (idx) => { player.Ctlcontrols.currentPosition = _sync.Lines[idx].StartTime.TotalSeconds; };
+            InitializeComponent();
+            videoView.MediaPlayer = _mp;
+        }
 
-			_sync.SyncOffsetMs = 0;
+        private void Form1_Load(object sender, EventArgs e) {
+            try {
+                MessageHelper.LogToConsole("INFO", "애플리케이션 시작 및 LibVLC 초기화 중...");
 
-			player.uiMode = "full";
-			_playlist = player.playlistCollection.newPlaylist("MyPlaylist");
+                _sync = new MediaLyricsSync(_mp, tmrSync);
+                _mainRenderer = new LyricsRenderer(pnlLyricsHost);
+                _sync.AddRenderer(_mainRenderer);
 
-			string videosPath = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
-			var mediaPath = Path.Combine(videosPath, "LyricsPlayer");
+                cmbRate.SelectedIndex = 2;
+                tbVolume.Value = _mp.Volume;
 
-			if(!Directory.Exists(mediaPath)) {
-				Directory.CreateDirectory(mediaPath);
-			}
+                _sync.OnLyricClicked = (idx) => {
+                    if (_mp.IsSeekable) {
+                        _mp.Time = (long)_sync.Lines[idx].StartTime.TotalMilliseconds;
+                        _mainRenderer.HighlightIndex(idx, -1);
+                    }
+                };
 
-			var mediaFiles = Directory.GetFiles(mediaPath, "*.mp4")
-									  .Concat(Directory.GetFiles(mediaPath, "*.mp3"))
-									  .Concat(Directory.GetFiles(mediaPath, "*.wmv"));
+                // += 로 변경해서 전체화면폼 구독자 유지
+                _sync.OnStatusUpdated += OnStatusUpdated;
 
-			foreach(var file in mediaFiles) {
-				_playlist.appendItem(player.newMedia(file));
-			}
+                _mp.EndReached += (s, ev) => {
+                    if (!this.IsDisposed)
+                        this.BeginInvoke(PlayNext);
+                };
 
-			player.currentPlaylist = _playlist;
+                // 전체화면 전환 - _sync 초기화 후에 등록
+                videoView.MouseDoubleClick += (s, e) => {
+                    if (_mp.Media != null) {
+                        var fs = new VideoFullscreenForm(_libVLC, _mp, _sync, videoView);
+                        fs.FormClosed += (fsSender, fsArgs) => {
+                            videoView.Parent = splitContainer1.Panel1;
+                            videoView.Dock = DockStyle.Fill;
+                            videoView.BringToFront();
+                        };
+                        fs.Show();
+                    }
+                };
 
-			// DataGridView 컬럼 수동 설정
-			dataGridView1.AutoGenerateColumns = false;
-			dataGridView1.Columns.Clear();
+                SetupFileWatcher();
+                RefreshPlaylist();
 
-			var titleColumn = new DataGridViewTextBoxColumn {
-				Name = "Title",
-				HeaderText = "제목",
-				DataPropertyName = "name", // IWMPMedia.name 속성과 바인딩
-				AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill
-			};
-			dataGridView1.Columns.Add(titleColumn);
+                MessageHelper.LogToConsole("INFO", "초기화 완료.");
+            } catch (Exception ex) {
+                MessageHelper.ShowError("초기화 중 오류가 발생했습니다.", ex);
+            }
+        }
 
-			var durationColumn = new DataGridViewTextBoxColumn {
-				Name = "Duration",
-				HeaderText = "시간",
-				DataPropertyName = "durationString", // IWMPMedia.durationString 속성과 바인딩
-				Width = 100
-			};
-			dataGridView1.Columns.Add(durationColumn);
+        private void OnStatusUpdated(string title, string cur, string total) {
+            if (_isUserSeeking || this.IsDisposed) return;
+            this.Invoke(() => {
+                lblTime.Text = $"{cur}/{total}";
+                if (_mp.Length > 0)
+                    tbPosition.Value = (float)((double)_mp.Time / _mp.Length * tbPosition.Maximum);
 
+                if (_pipForm != null && !_pipForm.IsDisposed)
+                    _pipForm.UpdateStatus(label1.Text, cur, total);
+            });
+        }
 
-			// DataGridView is now configured in the designer.
-			// We just need to set the data source here.
-			var playlistItems = new System.Collections.Generic.List<IWMPMedia>();
-			if(_playlist != null) {
-				for(int i = 0; i < _playlist.count; i++) {
-					playlistItems.Add(_playlist.Item[i]);
-				}
-			}
-			dataGridView1.DataSource = playlistItems;
+        private void SetupFileWatcher() {
+            string videosPath = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+            var mediaPath = Path.Combine(videosPath, "LyricsPlayer");
+            if (!Directory.Exists(mediaPath)) Directory.CreateDirectory(mediaPath);
 
-			dataGridView1.CellDoubleClick += DataGridView1_CellDoubleClick;
-			player.CurrentItemChange += Player_CurrentItemChange;
+            _watcher = new FileSystemWatcher(mediaPath) {
+                NotifyFilter = NotifyFilters.FileName,
+                EnableRaisingEvents = true
+            };
+            _watcher.Created += OnFileSystemChanged;
+            _watcher.Deleted += OnFileSystemChanged;
+            _watcher.Renamed += OnFileSystemChanged;
+        }
 
-			_watcher = new FileSystemWatcher(mediaPath);
-			_watcher.NotifyFilter = NotifyFilters.FileName;
-			_watcher.Created += OnFileSystemChanged;
-			_watcher.Deleted += OnFileSystemChanged;
-			_watcher.Renamed += OnFileSystemChanged;
-			_watcher.EnableRaisingEvents = true;
-		}
+        private async void RefreshPlaylist(string filter = "") {
+            if (InvokeRequired) { Invoke(() => RefreshPlaylist(filter)); return; }
 
-		private void OnFileSystemChanged(object sender, FileSystemEventArgs e) {
-			var ext = Path.GetExtension(e.FullPath).ToLowerInvariant();
-			if(ext == ".mp4" || ext == ".mp3" || ext == ".wmv") {
-				if(InvokeRequired) {
-					Invoke(new Action(RefreshPlaylist));
-				} else {
-					RefreshPlaylist();
-				}
-			}
-		}
+            try {
+                string videosPath = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+                var mediaPath = Path.Combine(videosPath, "LyricsPlayer");
+                if (!Directory.Exists(mediaPath)) return;
 
-		protected override void OnFormClosing(FormClosingEventArgs e) {
-			_watcher?.Dispose();
-			_mainRenderer?.Dispose();
-			base.OnFormClosing(e);
-		}
+                var files = Directory.GetFiles(mediaPath, "*.*")
+                    .Where(f => f.EndsWith(".mp4") || f.EndsWith(".mp3") ||
+                                f.EndsWith(".wmv") || f.EndsWith(".mkv"))
+                    .ToList();
 
-		private void RefreshPlaylist() {
-			if(InvokeRequired) {
-				Invoke(new Action(RefreshPlaylist));
-				return;
-			}
+                _allFiles = files.Select(f => new PlaylistItem {
+                    Title = Path.GetFileNameWithoutExtension(f),
+                    Path = f,
+                    Duration = "--:--"
+                }).ToList();
 
-			try {
-				string videosPath = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
-				var mediaPath = Path.Combine(videosPath, "LyricsPlayer");
-				if(!Directory.Exists(mediaPath)) return;
+                UpdateDisplayedList(filter);
 
-				var mediaFiles = Directory.GetFiles(mediaPath, "*.mp4")
-										  .Concat(Directory.GetFiles(mediaPath, "*.mp3"))
-										  .Concat(Directory.GetFiles(mediaPath, "*.wmv"))
-										  .ToList();
+                await Task.Run(() => {
+                    foreach (var item in _allFiles.Where(i => i.Duration == "--:--")) {
+                        using var media = new Media(_libVLC, new Uri(item.Path));
+                        media.Parse();
+                        long durationMs = media.Duration;
+                        if (durationMs > 0) {
+                            item.Duration = TimeSpan.FromMilliseconds(durationMs).ToString(@"mm\:ss");
+                            this.Invoke(() => lbPlaylist.Invalidate());
+                        }
+                    }
+                });
+            } catch (Exception ex) {
+                MessageHelper.LogToConsole("ERROR", $"재생 목록 갱신 오류: {ex.Message}");
+            }
+        }
 
-				var currentPlaylistFiles = new List<string>();
-				for(int i = 0; i < _playlist.count; i++) {
-					currentPlaylistFiles.Add(_playlist.Item[i].sourceURL);
-				}
+        private void UpdateDisplayedList(string filter = "") {
+            var filtered = string.IsNullOrEmpty(filter)
+                ? _allFiles
+                : _allFiles.Where(x => x.Title.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
 
-				foreach(var file in mediaFiles) {
-					if(!currentPlaylistFiles.Contains(file, StringComparer.OrdinalIgnoreCase)) {
-						_playlist.appendItem(player.newMedia(file));
-					}
-				}
+            lbPlaylist.Items.Clear();
+            foreach (var item in filtered) lbPlaylist.Items.Add(item);
 
-				for(int i = _playlist.count - 1; i >= 0; i--) {
-					var item = _playlist.Item[i];
-					if(!mediaFiles.Contains(item.sourceURL, StringComparer.OrdinalIgnoreCase)) {
-						_playlist.removeItem(item);
-					}
-				}
+            lblPlaylistInfo.Text = $"ITEMS: {filtered.Count}";
+            lbPlaylist.CurrentPlayingPath = _currentPlayingPath;
+        }
 
-				var playlistItems = new System.Collections.Generic.List<IWMPMedia>();
-				for(int i = 0; i < _playlist.count; i++) {
-					playlistItems.Add(_playlist.Item[i]);
-				}
-				dataGridView1.DataSource = null;
-				dataGridView1.DataSource = playlistItems;
-			} catch(Exception ex) {
-				System.Diagnostics.Debug.WriteLine($"[MainForm] Error Refreshing Playlist: {ex.Message}");
-			}
-		}
+        private void PlayFile(string path) {
+            if (!File.Exists(path)) return;
 
-		private void Player_CurrentItemChange(object sender, AxWMPLib._WMPOCXEvents_CurrentItemChangeEvent e) {
-			var media = player.Ctlcontrols.currentItem;
-			if(media != null) {
-				label1.Text = media.name;
-				_sync.LoadMedia(media.sourceURL);
+            _currentPlayingPath = path;
+            lbPlaylist.CurrentPlayingPath = path;
+            string title = Path.GetFileNameWithoutExtension(path);
+            MessageHelper.LogToConsole("INFO", $"재생 시도: {title}");
 
-				foreach(DataGridViewRow row in dataGridView1.Rows) {
-					if(row.DataBoundItem is IWMPMedia item && item.sourceURL == media.sourceURL) {
-						row.Selected = true;
-						dataGridView1.CurrentCell = row.Cells[0];
-						break;
-					}
-				}
-			}
-		}
+            _mp.Play(new Media(_libVLC, new Uri(path)));
 
-		private void DataGridView1_CellDoubleClick(object sender, DataGridViewCellEventArgs e) {
-			if(e.RowIndex >= 0) {
-				var media = (IWMPMedia)dataGridView1.Rows[e.RowIndex].DataBoundItem;
-				player.Ctlcontrols.playItem(media);
-			}
-		}
+            Task.Run(async () => {
+                await Task.Delay(500);
+                if (!this.IsDisposed) this.Invoke(() => _mp.SetSpu(-1));
+            });
 
-		private void MainForm_Shown(object sender, EventArgs e) {
-			_mainRenderer.ForceUpdateLayout();
+            _ = _sync.LoadMedia(path);
+            label1.Text = title;
+            btnPlayPause.Text = "⏸";
+            lbPlaylist.Invalidate();
 
-			if(_playlist.count > 0) {
-				var firstItem = _playlist.Item[0];
-				if(firstItem != null) {
-					label1.Text = firstItem.name;
-					_sync.LoadMedia(firstItem.sourceURL);
-				}
-				player.Ctlcontrols.play();
-			}
-		}
+            if (_pipForm != null && !_pipForm.IsDisposed)
+                _pipForm.UpdateStatus(title, "00:00", "00:00");
+        }
 
-		private void btnPipMode_Click(object sender, EventArgs e) {
-			if(_pipForm == null || _pipForm.IsDisposed) {
-				_pipForm = new LyricsPipForm();
-				var pipRenderer = new LyricsRenderer(_pipForm.LyricsHostPanel);
-				_sync.AddRenderer(pipRenderer);
+        private void PlayNext() {
+            int idx = lbPlaylist.SelectedIndex;
+            if (idx < lbPlaylist.Items.Count - 1) SelectAndPlay(idx + 1);
+        }
 
-				// 재생 상태 업데이트 연결
-				Action<string, string, string> statusUpdater = (title, cur, total) => {
-					if(_pipForm != null && !_pipForm.IsDisposed) {
-						_pipForm.UpdateStatus(title, cur, total);
-					}
-				};
-				_sync.OnStatusUpdated += statusUpdater;
+        private void PlayPrev() {
+            int idx = lbPlaylist.SelectedIndex;
+            if (idx > 0) SelectAndPlay(idx - 1);
+        }
 
-				_pipForm.FormClosed += (s, args) => {
-					_sync.RemoveRenderer(pipRenderer);
-					_sync.OnStatusUpdated -= statusUpdater;
-					_pipForm = null;
-				};
-				_pipForm.Show();
-			} else {
-				_pipForm.Activate();
-			}
-		}
-	}
+        private void SelectAndPlay(int index) {
+            if (index >= 0 && index < lbPlaylist.Items.Count) {
+                lbPlaylist.SelectedIndex = index;
+                if (lbPlaylist.Items[index] is PlaylistItem item) PlayFile(item.Path);
+            }
+        }
+
+        private void OnFileSystemChanged(object sender, FileSystemEventArgs e)
+            => this.Invoke(() => RefreshPlaylist(txtSearch.Text));
+
+        protected override void OnFormClosing(FormClosingEventArgs e) {
+            _sync.OnStatusUpdated -= OnStatusUpdated;
+            _watcher?.Dispose();
+            _mainRenderer?.Dispose();
+            _sync?.Dispose();
+            _mp?.Dispose();
+            _libVLC?.Dispose();
+            base.OnFormClosing(e);
+        }
+
+        private void MainForm_Shown(object sender, EventArgs e) {
+            _mainRenderer.ForceUpdateLayout();
+            // ClearRenderers() 제거 - mainRenderer를 날리면 안 됨
+        }
+
+        private void txtSearch_TextChanged(object sender, EventArgs e)
+            => UpdateDisplayedList(txtSearch.Text);
+
+        private void btnOpenFolder_Click(object sender, EventArgs e) {
+            string path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "LyricsPlayer");
+            if (Directory.Exists(path)) Process.Start("explorer.exe", path);
+        }
+
+        private void lbPlaylist_DoubleClick(object sender, EventArgs e) {
+            if (lbPlaylist.SelectedItem is PlaylistItem item) PlayFile(item.Path);
+        }
+
+        private void MainForm_DragEnter(object sender, DragEventArgs e) {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop)) e.Effect = DragDropEffects.Copy;
+        }
+
+        private void MainForm_DragDrop(object sender, DragEventArgs e) {
+            if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0) {
+                string ext = Path.GetExtension(files[0]).ToLower();
+                if (new[] { ".mp4", ".mp3", ".wmv", ".mkv" }.Contains(ext))
+                    PlayFile(files[0]);
+            }
+        }
+
+        private void menuOpenFileLocation_Click(object sender, EventArgs e) {
+            if (lbPlaylist.SelectedItem is PlaylistItem item)
+                Process.Start("explorer.exe", $"/select,\"{item.Path}\"");
+        }
+
+        private void menuRemoveFromList_Click(object sender, EventArgs e)
+            => MessageHelper.ShowInfo("이 플레이어는 폴더와 실시간 동기화됩니다. 파일을 폴더에서 이동하거나 삭제하면 목록에서 자동으로 제거됩니다.");
+
+        private void menuRefreshList_Click(object sender, EventArgs e)
+            => RefreshPlaylist(txtSearch.Text);
+
+        private void btnPlayPause_Click(object sender, EventArgs e) {
+            if (_mp.IsPlaying) { _mp.Pause(); btnPlayPause.Text = "▶"; } else if (_mp.Media != null) { _mp.Play(); btnPlayPause.Text = "⏸"; }
+        }
+
+        private void btnStop_Click(object sender, EventArgs e) {
+            _mp.Stop();
+            btnPlayPause.Text = "▶";
+            tbPosition.Value = 0;
+            lblTime.Text = "00:00/00:00";
+            _currentPlayingPath = "";
+            lbPlaylist.CurrentPlayingPath = "";
+            lbPlaylist.Invalidate();
+
+            if (_pipForm != null && !_pipForm.IsDisposed)
+                _pipForm.UpdateStatus("정지됨", "00:00", "00:00");
+        }
+
+        private void btnPrev_Click(object sender, EventArgs e) => PlayPrev();
+        private void btnNext_Click(object sender, EventArgs e) => PlayNext();
+
+        private void tbVolume_Scroll(object sender, EventArgs e) => _mp.Volume = (int)tbVolume.Value;
+
+        private void cmbRate_SelectedIndexChanged(object sender, EventArgs e) {
+            if (cmbRate.SelectedItem?.ToString()?.Replace("x", "") is string rateStr
+                && float.TryParse(rateStr, out float rate))
+                _mp.SetRate(rate);
+        }
+
+        private void tbPosition_Scroll(object sender, EventArgs e) {
+            if (_mp.Length <= 0) return;
+            _isUserSeeking = true;
+            long targetTime = (long)((double)tbPosition.Value / tbPosition.Maximum * _mp.Length);
+            _mp.Time = targetTime;
+            string cur = TimeSpan.FromMilliseconds(targetTime).ToString(@"mm\:ss");
+            string tot = TimeSpan.FromMilliseconds(_mp.Length).ToString(@"mm\:ss");
+            lblTime.Text = $"{cur}/{tot}";
+            if (_pipForm != null && !_pipForm.IsDisposed)
+                _pipForm.UpdateStatus(label1.Text, cur, tot);
+        }
+
+        private void tbPosition_MouseUp(object sender, MouseEventArgs e) => _isUserSeeking = false;
+        private void tbPosition_MouseDown(object sender, MouseEventArgs e) => _isUserSeeking = true;
+
+        private void btnPipMode_Click(object sender, EventArgs e) {
+            if (_pipForm == null || _pipForm.IsDisposed) {
+                _pipForm = new LyricsPipForm();
+                var pipRenderer = new LyricsRenderer(_pipForm.LyricsHostPanel);
+                _sync.AddRenderer(pipRenderer);
+
+                if (_sync.Lines.Count == 0) pipRenderer.LoadLines(null);
+
+                string cur = lblTime.Text.Split('/')[0];
+                string tot = lblTime.Text.Contains('/') ? lblTime.Text.Split('/')[1] : "00:00";
+                _pipForm.UpdateStatus(
+                    label1.Text == "Playlist" ? "대기 중" : label1.Text, cur, tot);
+
+                _pipForm.FormClosed += (s, args) => {
+                    _sync.RemoveRenderer(pipRenderer);
+                    _pipForm = null;
+                };
+                _pipForm.Show();
+            } else {
+                _pipForm.Activate();
+            }
+        }
+    }
 }

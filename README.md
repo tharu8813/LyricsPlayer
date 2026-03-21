@@ -22,6 +22,7 @@ LyricsPlayer는 `C:\Users\USER\Videos` 폴더에 있는 MP4 파일을 자동으�
 1. 지정된 폴더에서 MP4 파일 검색
 2. 동일한 파일명의 LRC 또는 SRT 자동 로드
 3. 재생 시간 기준으로 가사 표시
+4. 동영상 더블클릭시 전체 화면으로 전환
 
 ## 스크린샷
 <img width="657" height="388" alt="image" src="https://github.com/user-attachments/assets/98da56d7-9ddf-4f5a-b5b8-8315f6acb7de" />

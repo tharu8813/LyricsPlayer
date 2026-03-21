@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 // 이와 같은 SDK 스타일 프로젝트에서는 이 파일에 지금까지 정의된 여러 어셈블리 특성이 이제 빌드 중에 자동으로 추가되고 프로젝트 속성에 정의된
@@ -25,12 +24,12 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyProduct("LyricsPlayer")]
 
 // 저작권 / 상표
-[assembly: AssemblyCopyright("Copyright © 2026")]
+[assembly: AssemblyCopyright("© 2024-2026 Ji Beak min(tharu8813). All rights reserved.")]
 [assembly: AssemblyTrademark("")]
 
 // GUID (COM에서 사용할 경우 필요)
 [assembly: Guid("b2ea4bdd-c209-48b4-837a-75a6674806ce")]
 
 // 버전 정보
-[assembly: AssemblyVersion("2.0.0.0")]
-[assembly: AssemblyFileVersion("2.0.0.0")]
+[assembly: AssemblyVersion("2.1.0.0")]
+[assembly: AssemblyFileVersion("2.1.0.0")]

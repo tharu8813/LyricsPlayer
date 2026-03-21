@@ -1,66 +1,61 @@
-using System.Diagnostics;
+using LyricsPlayer.Helpers;
+using LyricsPlayer.Models;
 using System.Text.RegularExpressions;
 
-using LyricsPlayer.Models;
-
 namespace LyricsPlayer.Parsers {
-	public static class SrtParser {
-		private static readonly Regex TimeRegex = new Regex(
-			@"(?<h>\d{{2}}):(?<m>\d{{2}}):(?<s>\d{{2}}),(?<ms>\d{{3}})",
-			RegexOptions.Compiled);
+    public static class SrtParser {
+        private static readonly Regex TimeRegex = new Regex(
+            @"(\d+):(\d+):(\d+),(\d+) --> (\d+):(\d+):(\d+),(\d+)",
+            RegexOptions.Compiled);
 
-		public static List<LyricLine> Parse(string text) {
-			var result = new List<LyricLine>();
-			var blocks = Regex.Split(text.Trim(), @"\r?\n\r?\n");
-			Debug.WriteLine($"[SrtParser] Found {blocks.Length} blocks.");
+        public static List<LyricLine> Parse(string text) {
+            MessageHelper.LogToConsole("INFO", "SRT 파싱 시작...");
+            var result = new List<LyricLine>();
 
-			foreach(var block in blocks) {
-				var lines = block.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
-				if(lines.Length < 2) continue;
+            if (string.IsNullOrWhiteSpace(text)) return result;
 
-				// 타임라인 줄 (예: 00:00:05,000 --> 00:00:07,000)
-				// SRT 파일 형식에 따라 타임라인이 첫 번째 줄에 올 수도 있으므로 확인
-				int timeLineIndex = lines.Length > 1 && lines[1].Contains(" --> ") ? 1 : 0;
-				if(lines.Length <= timeLineIndex) {
-					Debug.WriteLine($"[SrtParser] Skipping block (not enough lines):\n{block}");
-					continue;
-				}
+            var blocks = Regex.Split(text.Trim(), @"\r?\n\r?\n");
 
-				var timeMatch = Regex.Match(lines[timeLineIndex], @"(\d+):(\d+):(\d+),(\d+) --> (\d+):(\d+):(\d+),(\d+)");
-				if(!timeMatch.Success) {
-					Debug.WriteLine($"[SrtParser] Time match failed for line: {lines[timeLineIndex]}");
-					continue;
-				}
+            foreach (var block in blocks) {
+                var lines = block.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
 
-				var start = new TimeSpan(0,
-					int.Parse(timeMatch.Groups[1].Value),
-					int.Parse(timeMatch.Groups[2].Value),
-					int.Parse(timeMatch.Groups[3].Value),
-					int.Parse(timeMatch.Groups[4].Value));
+                // SRT 표준: lines[0] = 번호, lines[1] = 타임라인, lines[2+] = 텍스트
+                if (lines.Length < 2) continue;
 
-				var end = new TimeSpan(0,
-					int.Parse(timeMatch.Groups[5].Value),
-					int.Parse(timeMatch.Groups[6].Value),
-					int.Parse(timeMatch.Groups[7].Value),
-					int.Parse(timeMatch.Groups[8].Value));
+                // 타임라인 줄 찾기 (번호 줄이 없는 비표준 SRT 대응)
+                int timeLineIndex = lines[0].Contains(" --> ") ? 0 : 1;
+                if (lines.Length <= timeLineIndex) continue;
 
-				// 텍스트 줄
-				string lyric = string.Join("\n", lines.Skip(timeLineIndex + 1)).Trim();
-				Debug.WriteLine($"[SrtParser] Parsed: Start={start}, End={end}, Lyric='{lyric}'");
+                var timeMatch = TimeRegex.Match(lines[timeLineIndex]);
+                if (!timeMatch.Success) {
+                    MessageHelper.LogToConsole("WARNING", $"SRT 타임라인 파싱 실패: {lines[timeLineIndex]}");
+                    continue;
+                }
 
-				result.Add(new LyricLine(start, lyric, end));
-			}
+                if (!TryParseTimeSpan(timeMatch, 1, out var start) ||
+                    !TryParseTimeSpan(timeMatch, 5, out var end)) continue;
 
-			return result.OrderBy(x => x.StartTime).ToList();
-		}
+                string lyric = string.Join("\n", lines.Skip(timeLineIndex + 1)).Trim();
+                if (string.IsNullOrWhiteSpace(lyric)) continue;
 
+                result.Add(new LyricLine(start, lyric, end));
+            }
 
-		private static TimeSpan ParseTime(Match m) {
-			return new TimeSpan(0,
-				int.Parse(m.Groups["h"].Value),
-				int.Parse(m.Groups["m"].Value),
-				int.Parse(m.Groups["s"].Value),
-				int.Parse(m.Groups["ms"].Value));
-		}
-	}
+            var final = result.OrderBy(x => x.StartTime).ToList();
+            MessageHelper.LogToConsole("INFO", $"SRT 파싱 완료: {final.Count} 줄 로드됨.");
+            return final;
+        }
+
+        private static bool TryParseTimeSpan(Match m, int groupOffset, out TimeSpan result) {
+            result = TimeSpan.Zero;
+            if (int.TryParse(m.Groups[groupOffset].Value, out int h) &&
+                int.TryParse(m.Groups[groupOffset + 1].Value, out int min) &&
+                int.TryParse(m.Groups[groupOffset + 2].Value, out int s) &&
+                int.TryParse(m.Groups[groupOffset + 3].Value, out int ms)) {
+                result = new TimeSpan(0, h, min, s, ms);
+                return true;
+            }
+            return false;
+        }
+    }
 }
