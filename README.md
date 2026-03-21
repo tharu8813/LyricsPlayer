@@ -25,4 +25,4 @@ LyricsPlayer는 `C:\Users\USER\Videos` 폴더에 있는 MP4 파일을 자동으�
 4. 동영상 더블클릭시 전체 화면으로 전환
 
 ## 스크린샷
-<img width="657" height="388" alt="image" src="https://github.com/user-attachments/assets/22e5a238-4ead-4ef9-8f9c-03f0aad2163a" />
+<img width="657" height="388" alt="image" src="https://github.com/user-attachments/assets/b9f02ea2-4237-46d5-8e2b-a23a7bfe4667" />
