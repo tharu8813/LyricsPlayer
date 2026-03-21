@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="icon.png" alt="ikcon" width="150">
+  <img src="Assets/icon.png" alt="ikcon" width="150">
 </p>
 
 # LyricsPlayer
@@ -25,4 +25,4 @@ LyricsPlayer는 `C:\Users\USER\Videos` 폴더에 있는 MP4 파일을 자동으�
 4. 동영상 더블클릭시 전체 화면으로 전환
 
 ## 스크린샷
-<img width="657" height="388" alt="image" src="https://github.com/user-attachments/assets/98da56d7-9ddf-4f5a-b5b8-8315f6acb7de" />
+<img width="657" height="388" alt="image" src="https://github.com/user-attachments/assets/22e5a238-4ead-4ef9-8f9c-03f0aad2163a" />

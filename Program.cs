@@ -22,6 +22,12 @@ namespace LyricsPlayer {
             }
 
             ApplicationConfiguration.Initialize();
+
+            // SplashScreen 표시 및 초기화 대기
+            using (var splash = new UI.Forms.SplashScreen()) {
+                splash.ShowDialog();
+            }
+
             Application.Run(new UI.Forms.MainForm());
         }
 
@@ -33,7 +39,6 @@ namespace LyricsPlayer {
 
             if (existing == null) return;
 
-            // 최소화된 경우 복원 후 포커스
             ShowWindow(existing.MainWindowHandle, SW_RESTORE);
             SetForegroundWindow(existing.MainWindowHandle);
         }

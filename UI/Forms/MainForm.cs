@@ -20,7 +20,6 @@ namespace LyricsPlayer.UI.Forms {
         private string _currentPlayingPath = "";
 
         public MainForm() {
-            LibVLCSharp.Shared.Core.Initialize();
             _libVLC = new LibVLC();
             _mp = new MediaPlayer(_libVLC) {
                 EnableMouseInput = false,
