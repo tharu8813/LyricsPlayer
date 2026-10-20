@@ -361,3 +361,8 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Generated migration graph, test fixtures, reports and portable builds
+/graphify-out/
+/artifacts/
+!Properties/PublishProfiles/Portable-win-x64.pubxml

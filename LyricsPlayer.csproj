@@ -1,45 +1,28 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
-    <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
-    <PackageId>$(AssemblyName)</PackageId>
-    <Title></Title>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <StartupObject>LyricsPlayer.Program</StartupObject>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
+    <DefaultItemExcludes>$(DefaultItemExcludes);graphify-out\**;artifacts\**</DefaultItemExcludes>
   </PropertyGroup>
-
   <ItemGroup>
-    <PackageReference Include="LibVLCSharp.WinForms" Version="3.9.1" />
+    <PackageReference Include="LibVLCSharp.WPF" Version="3.10.1" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.21" />
   </ItemGroup>
-
   <ItemGroup>
-    <Content Include="Assets\icon.ico" />
+    <Using Include="System.IO" />
+    <Resource Include="Assets\icon.ico" />
+    <None Update="LICENSE" CopyToPublishDirectory="PreserveNewest" />
+    <Compile Remove="Tests\**;tools\**" />
+    <Page Remove="Tests\**;tools\**" />
   </ItemGroup>
-
-  <ItemGroup>
-    <Compile Update="Properties\Resources.Designer.cs">
-      <DesignTime>True</DesignTime>
-      <AutoGen>True</AutoGen>
-      <DependentUpon>Resources.resx</DependentUpon>
-    </Compile>
-    <Compile Update="Properties\Settings.Designer.cs">
-      <DesignTimeSharedInput>True</DesignTimeSharedInput>
-      <AutoGen>True</AutoGen>
-      <DependentUpon>Settings.settings</DependentUpon>
-    </Compile>
-  </ItemGroup>
-
-  <ItemGroup>
-    <EmbeddedResource Update="Properties\Resources.resx">
-      <Generator>ResXFileCodeGenerator</Generator>
-      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
-    </EmbeddedResource>
-  </ItemGroup>
-	
 </Project>

@@ -3,6 +3,7 @@
         public TimeSpan StartTime { get; }
         public TimeSpan? EndTime { get; set; }   // LRC의 경우 다음 라인의 시작 시간으로 채워짐
         public string Text { get; }
+        public string Timeline => GetTimelineString();
 
         public LyricLine(TimeSpan startTime, string text, TimeSpan? endTime = null) {
             StartTime = startTime;
@@ -20,7 +21,7 @@
             return $"{(int)ts.TotalMinutes:00}:{ts.Seconds:00}.{ts.Milliseconds / 10:00}";
         }
 
-        public int CompareTo(LyricLine other) {
+        public int CompareTo(LyricLine? other) {
             if (other == null) return 1;
             return StartTime.CompareTo(other.StartTime);
         }

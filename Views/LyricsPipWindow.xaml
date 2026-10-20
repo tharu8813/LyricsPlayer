@@ -1,0 +1,12 @@
+<Window x:Class="LyricsPlayer.Views.LyricsPipWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:LyricsPlayer.Views" xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework" Style="{StaticResource {x:Type Window}}" Title="LyricsPlayer · 가사 PiP" Width="550" Height="300" MinWidth="330" MinHeight="200" MaxWidth="1200" MaxHeight="800" WindowStyle="None" ResizeMode="CanResizeWithGrip" Topmost="True" ShowInTaskbar="False" WindowStartupLocation="CenterOwner" Icon="/LyricsPlayer;component/Assets/icon.ico" PreviewKeyDown="PipKeyDown">
+  <shell:WindowChrome.WindowChrome><shell:WindowChrome CaptionHeight="42" ResizeBorderThickness="6" CornerRadius="0" GlassFrameThickness="0"/></shell:WindowChrome.WindowChrome>
+  <Border BorderBrush="{StaticResource Border}" BorderThickness="1" Padding="6">
+    <Grid x:Name="Contents">
+      <Grid.RenderTransform><TranslateTransform/></Grid.RenderTransform>
+      <Grid.RowDefinitions><RowDefinition Height="42"/><RowDefinition Height="*"/><RowDefinition Height="34"/></Grid.RowDefinitions>
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="가까이 듣기 / LYRICS" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="12,0"/><Button Grid.Column="1" Style="{StaticResource IconButton}" Click="ClosePip" shell:WindowChrome.IsHitTestVisibleInChrome="True" ToolTip="PiP 닫기" AutomationProperties.Name="PiP 닫기"><Path Data="{StaticResource CloseIcon}" Stroke="{StaticResource SecondaryText}" StrokeThickness="1.5" Width="14" Height="14" Stretch="Uniform"/></Button></Grid>
+      <local:LyricsView Grid.Row="1"/>
+      <Grid Grid.Row="2" Margin="12,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" FontWeight="SemiBold"/><StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0"><TextBlock Text="{Binding CurrentTime}" Style="{StaticResource Caption}" FontFamily="Consolas"/><TextBlock Text=" / " Style="{StaticResource Caption}"/><TextBlock Text="{Binding TotalTime}" Style="{StaticResource Caption}" FontFamily="Consolas"/></StackPanel></Grid>
+    </Grid>
+  </Border>
+</Window>

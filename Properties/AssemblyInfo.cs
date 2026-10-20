@@ -1,5 +1,8 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+
+[assembly: SupportedOSPlatform("windows7.0")]
 
 // 이와 같은 SDK 스타일 프로젝트에서는 이 파일에 지금까지 정의된 여러 어셈블리 특성이 이제 빌드 중에 자동으로 추가되고 프로젝트 속성에 정의된
 // 값으로 채워집니다. 포함된 특성에 대한 자세한 내용과 이 프로세스를 사용자 지정하는 방법에 대해서는 https://aka.ms/assembly-info-properties를
