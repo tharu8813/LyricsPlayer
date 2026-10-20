@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using LibVLCSharp.Shared;
 using LyricsPlayer.Core;
 using LyricsPlayer.Parsers;
@@ -25,7 +26,8 @@ internal static class Program
         try
         {
             PureChecks();
-            if (args.Contains("--runtime")) return RuntimeChecks(args.Contains("--hold"));
+            if (args.Contains("--runtime") || args.Contains("--audio-runtime"))
+                return RuntimeChecks(args.Contains("--hold"), args.Contains("--audio-runtime"));
             Console.WriteLine($"{_checks} checks passed.");
             return 0;
         }
@@ -71,14 +73,54 @@ internal static class Program
         Check(MediaFiles.AdjacentIndex(paths, "b.mp3", 1) == 2 && MediaFiles.AdjacentIndex(paths, "B.MP3", -1) == 0, "navigation uses current path, case insensitive");
         Check(MediaFiles.AdjacentIndex(paths, "c.mkv", 1) == -1 && MediaFiles.AdjacentIndex(paths, "a.mp4", -1) == -1, "playlist boundaries never wrap");
         Check(MediaFiles.FormatTime(3723000) == "1:02:03", "duration over one hour");
+        using var reference = System.Text.Json.JsonDocument.Parse(File.ReadAllText("Tests/Fixtures/canvas-reaction-reference.json"));
+        var step = new double[60];
+        Array.Fill(step, 1, 10, 5);
+        var envelope = new MusicReactionTimeline(step);
+        double Difference(string name, MusicReactionTimeline timeline) => reference.RootElement.GetProperty(name).EnumerateArray()
+            .Select((value, index) => Math.Abs(value.GetDouble() - timeline.LevelAt(index * 1000d / 30))).Max();
+        Check(Difference("step", envelope) < 1e-6, "attack/release matches Playlist Canvas numerical reference");
+        short[] pcm = new short[32000];
+        for (int i = 0; i < pcm.Length; i++)
+        {
+            double time = i / 8000d;
+            double bass = time >= 0.5 && time < 2 ? 12000 * Math.Exp(-15 * ((time - 0.5) % 0.5)) * Math.Sin(2 * Math.PI * 65 * time) : 0;
+            double treble = time >= 2 && time < 2.5 ? 10000 * Math.Sin(2 * Math.PI * 1000 * time) : 0;
+            pcm[i] = (short)(bass + treble);
+        }
+        var builder = new MusicReactionTimeline.Builder();
+        for (int i = 0; i < pcm.Length; i += 137) builder.Append(pcm.AsSpan(i, Math.Min(137, pcm.Length - i)));
+        var spectrum = builder.Finish();
+        double error = Difference("pcm", spectrum);
+        Check(spectrum.FrameCount == 120 && error < 0.0001, $"streaming low-band DFT matches Playlist Canvas FFT (max error={error:E2})");
+        Check(spectrum.LevelAt(-100) == 0 && spectrum.LevelAt(10000) == 0 && spectrum.LevelAt(double.NaN) == 0, "reaction time boundaries remain safe");
+        Check(new MusicReactionTimeline(new double[60]).LevelAt(500) == 0, "silent track remains still after normalization");
+        Check(envelope.LevelAt(400) > 0.9 && envelope.LevelAt(700) < envelope.LevelAt(500), "bass rises promptly and decays gradually");
+        var clock = new PlaybackClock();
+        Check(clock.Read(1000, 0, true, 1) == 1000 && clock.Read(1000, 120, true, 1) == 1120,
+            "playback advances between repeated VLC time values");
+        Check(clock.Read(1250, 250, true, 1) == 1250, "fresh VLC time reanchors interpolation");
+        clock.Read(1250, 300, false, 1);
+        Check(clock.Estimate(900) == 1300, "paused playback clock stays fixed");
+        clock.Read(1250, 1000, true, 1);
+        Check(clock.Estimate(1100) == 1400, "resume does not include paused wall-clock time");
+        clock.Reset(2000, 0, true);
+        clock.Read(2000, 100, true, 2);
+        Check(clock.Estimate(200) == 2300, "playback rate changes preserve continuity");
+        clock.Reset(5000, 0, true);
+        Check(clock.Read(1000, 100, true, 1, true) == 5100, "seek advances without adopting stale native time");
+        Check(clock.Estimate(5000) == 5300, "stalled native input cannot extrapolate indefinitely");
+        clock.Reset(1000, 0, true);
+        Check(clock.Read(1200, 250, true, 1) == 1250 && clock.Estimate(350) == 1330,
+            "small native clock corrections settle gradually instead of rewinding lyrics");
     }
-
-    private static int RuntimeChecks(bool hold)
+    private static int RuntimeChecks(bool hold, bool audioOnly)
     {
         int result = 1;
         var app = new LyricsPlayer.App();
         app.InitializeComponent();
         var window = new MainWindow(libraryFolder: Path.GetFullPath("artifacts/test-media"));
+        window.Title = "LyricsPlayer · 자동 검사 (일시적 창)";
         app.MainWindow = window;
         window.Loaded += async (_, _) =>
         {
@@ -87,16 +129,36 @@ internal static class Program
                 var session = (MainViewModel)window.DataContext;
                 await Until(() => !session.IsLoading && session.Player is not null, "engine initialization");
                 Check(window.VideoOutputHandle != IntPtr.Zero, "WPF VideoView owns native output HWND");
-                var handle = window.VideoOutputHandle;
-                for (int i = 0; i < 3; i++) { window.SetFullscreen(true); await Task.Delay(120); window.SetFullscreen(false); await Task.Delay(120); }
-                Check(window.VideoOutputHandle == handle, "fullscreen prototype retains one native output handle");
-                var pip = window.ShowPip();
-                Check(ReferenceEquals(pip.DataContext, session) && pip.Topmost, "PiP shares session and stays on top");
-                pip.CloseImmediately();
-                await PlaybackChecks(window, session);
+                if (!audioOnly)
+                {
+                    var handle = window.VideoOutputHandle;
+                    for (int i = 0; i < 3; i++) { window.SetFullscreen(true); await Task.Delay(120); window.SetFullscreen(false); await Task.Delay(120); }
+                    Check(window.VideoOutputHandle == handle, "fullscreen prototype retains one native output handle");
+                    var pip = window.ShowPip();
+                    Check(ReferenceEquals(pip.DataContext, session) && pip.Topmost, "PiP shares session and stays on top");
+                    pip.CloseImmediately();
+                }
+                await AudioChecks(window, session);
+                await AnalysisSafetyChecks(window, session);
+                if (!audioOnly) await PlaybackChecks(window, session);
+                else await LargeLyricsCheck(window, session, Path.GetFullPath("artifacts/test-media/01 - Evening light.mp4"), Path.GetFullPath("artifacts/test-media"));
                 if (hold)
                 {
-                    await session.PlayFileAsync(Path.GetFullPath("artifacts/test-media/01 - Evening light.mp4"));
+                    await session.PlayFileAsync(Path.GetFullPath("artifacts/test-media/audio-reaction/Rhythm.mp3"));
+                    await Task.Delay(1500);
+                    var lyrics = (LyricsView)window.FindName("MainLyrics");
+                    var preview = new RenderTargetBitmap((int)lyrics.ActualWidth, (int)lyrics.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                    var canvas = new DrawingVisual();
+                    using (var drawing = canvas.RenderOpen())
+                    {
+                        var bounds = new Rect(0, 0, lyrics.ActualWidth, lyrics.ActualHeight);
+                        drawing.DrawRectangle((Brush)lyrics.FindResource("Surface"), null, bounds);
+                        drawing.DrawRectangle(new VisualBrush(lyrics), null, bounds);
+                    }
+                    preview.Render(canvas);
+                    var png = new PngBitmapEncoder();
+                    png.Frames.Add(BitmapFrame.Create(preview));
+                    using (var file = File.Create("artifacts/bass-pulse-preview.png")) png.Save(file);
                     Console.WriteLine("HOLD: ready for visual inspection for 60 seconds");
                     await Task.Delay(60000);
                 }
@@ -111,6 +173,128 @@ internal static class Program
         return result;
     }
 
+    private static async Task AudioChecks(MainWindow window, MainViewModel session)
+    {
+        string path = Path.GetFullPath("artifacts/test-media/audio-reaction/Reaction.mp3");
+        session.Volume = 30;
+        var elapsed = Stopwatch.StartNew();
+        await session.PlayFileAsync(path);
+        await Until(() => session.IsPlaying && session.Length > 0, "real playback with shared-engine analysis");
+        Check(session.MusicReactionReady && elapsed.ElapsedMilliseconds < 5000,
+            $"whole track is analyzed ahead of playback ({elapsed.ElapsedMilliseconds}ms)");
+        var view = (LyricsView)window.FindName("MainLyrics");
+        var rows = Find<ListBox>(view).Single();
+        session.Seek(1000);
+        await Task.Delay(100);
+        Check(session.MusicReactionLevel < 0.05, $"treble-only passage stays below 0.625% scale change (level={session.MusicReactionLevel:F5})");
+        var pip = window.ShowPip();
+        await Task.Delay(100);
+        session.Seek(3500);
+        await Task.Delay(70);
+        var active = (ListBoxItem)rows.ItemContainerGenerator.ContainerFromIndex(session.ActiveIndex);
+        var pulse = (Border)active.Template.FindName("Pulse", active);
+        var scale = (ScaleTransform)pulse.RenderTransform;
+        Check(active.ActualWidth >= pulse.ActualWidth * 1.215, "row reserves space for current emphasis and music scaling");
+        Check(!SystemParameters.ClientAreaAnimation || scale.ScaleX > 1.015 && scale.ScaleX <= 1.125,
+            $"current lyric follows normalized bass envelope (scale={scale.ScaleX:F3})");
+        var pipRows = Find<ListBox>(pip).Single();
+        var pipActive = (ListBoxItem)pipRows.ItemContainerGenerator.ContainerFromIndex(session.ActiveIndex);
+        var pipScale = (ScaleTransform)((Border)pipActive.Template.FindName("Pulse", pipActive)).RenderTransform;
+        Check(!SystemParameters.ClientAreaAnimation || Math.Abs(pipScale.ScaleX - scale.ScaleX) < 0.03,
+            "main and PiP sample the same audio-clock envelope");
+        Check(!SystemParameters.ClientAreaAnimation || Math.Abs(scale.ScaleX - (1 + session.MusicReactionLevel * MusicReactionTimeline.Strength)) < 0.02,
+            "rendered scale follows audio time without a queued pulse");
+        session.TogglePlayback();
+        await Until(() => !session.IsPlaying, "pause music reaction");
+        Check(!view.IsMusicAnimating, "pause removes the rendering subscription");
+        await Task.Delay(450);
+        Check(Math.Abs(scale.ScaleX - 1) < 0.0001 && Math.Abs(pipScale.ScaleX - 1) < 0.0001,
+            "pause gently returns main and PiP to base size");
+        pip.CloseImmediately();
+        Check(Find<ListBoxItem>(rows).Where(row => !row.IsSelected).All(row =>
+            ((ScaleTransform)((Border)row.Template.FindName("Pulse", row)).RenderTransform).ScaleX == 1),
+            "previous lyric containers reset their music scale");
+        session.TogglePlayback();
+        session.Seek(7000);
+        await Task.Delay(100);
+        Check(session.IsPlaying && session.MusicReactionLevel < 0.01, "seek immediately selects silence instead of replaying old beats");
+        await session.StopAsync();
+        Check(!session.MusicReactionReady && !view.IsMusicAnimating, "stop clears reaction data and rendering subscription");
+        await TimingChecks(window, session);
+    }
+
+    private static async Task TimingChecks(MainWindow window, MainViewModel session)
+    {
+        await session.PlayFileAsync(Path.GetFullPath("artifacts/test-media/01 - Evening light.mp4"));
+        await Until(() => session.IsPlaying && session.Length > 0 && session.Player!.Time > 600, "timing fixture starts");
+        int intermediate = 0;
+        long previousNative = session.Player!.Time, previousPosition = session.Position;
+        for (int i = 0; i < 35; i++)
+        {
+            await Task.Delay(15);
+            long native = session.Player.Time;
+            if (native == previousNative && session.Position > previousPosition) intermediate++;
+            previousNative = native; previousPosition = session.Position;
+        }
+        Check(intermediate >= 5, $"lyrics clock advances between native updates ({intermediate} intermediate steps)");
+        session.Seek(1450);
+        var watch = Stopwatch.StartNew();
+        var reports = new List<string>();
+        while (session.ActiveIndex != 1 && watch.ElapsedMilliseconds < 2000)
+        {
+            reports.Add($"{watch.ElapsedMilliseconds}:{session.Player.Time}/{session.Position}");
+            await Task.Delay(20);
+        }
+        Console.WriteLine("LYRIC CLOCK ms:native/estimated " + string.Join(", ", reports));
+        Check(watch.ElapsedMilliseconds < 500, $"lyric crosses 1800ms boundary without waiting for next coarse report ({watch.ElapsedMilliseconds}ms)");
+        session.Seek(1000);
+        await Task.Delay(80);
+        Check(session.Position > 1030 && session.Position < 1150, "seek continues moving during native resynchronization");
+        session.TogglePlayback();
+        await Until(() => !session.IsPlaying, "timing pause");
+        long paused = session.Position;
+        await Task.Delay(180);
+        Check(Math.Abs(session.Position - paused) < 3, "pause freezes interpolated lyric position");
+        session.Rate = 2;
+        session.TogglePlayback();
+        await Until(() => session.IsPlaying, "double-speed resume");
+        long start = session.Position;
+        await Task.Delay(260);
+        long advanced = session.Position - start;
+        Check(advanced > 320 && advanced < 750, $"lyric clock follows 2x playback ({advanced}ms in 260ms)");
+        session.Rate = 1;
+        await session.StopAsync();
+    }
+
+    private static async Task AnalysisSafetyChecks(MainWindow window, MainViewModel session)
+    {
+        string folder = Path.GetFullPath("artifacts/test-media");
+        await using (var playback = await Task.Run(() => new MediaPlaybackService()))
+        {
+            foreach (string file in new[] { "01 - Evening light.mp4", "02 - Quiet room.mp3", "03 - Window seat.mkv", "04 - After hours.wmv" })
+            {
+                var result = await MusicReactionService.AnalyzeAsync(playback.Engine, Path.Combine(folder, file), CancellationToken.None);
+                Check(result.FrameCount >= 520 && result.FrameCount <= 550, $"audio-only analysis supports {Path.GetExtension(file)} ({result.FrameCount} frames)");
+            }
+            using var cancellation = new CancellationTokenSource(10);
+            bool cancelled = false;
+            try { await MusicReactionService.AnalyzeAsync(playback.Engine, Path.Combine(folder, "01 - Evening light.mp4"), cancellation.Token); }
+            catch (OperationCanceledException) { cancelled = true; }
+            Check(cancelled, "analysis cancellation releases its native decoder");
+        }
+        var first = session.RunAsync(() => session.PlayFileAsync(Path.Combine(folder, "audio-reaction/Reaction.mp3")));
+        await Task.Delay(40);
+        string latest = Path.Combine(folder, "02 - Quiet room.mp3");
+        await session.PlayFileAsync(latest);
+        await first;
+        Check(session.CurrentPath == latest && session.Lines[0].Text.Contains("두 번째") && session.MusicReactionReady,
+            "rapid switching rejects the cancelled track's reaction and lyrics");
+        await session.PlayFileAsync(Path.Combine(folder, "01 - Evening light.mp4"));
+        await Until(() => session.HasVideo && DisplayedFrames(session) > 2, "video remains attached during analysis");
+        Check(DisplayedFrames(session) > 2, "audio analysis preserves main-player video output");
+        Check(!((LyricsView)window.FindName("MainLyrics")).IsMusicAnimating, "silent media does not keep a rendering subscription alive");
+        await session.StopAsync();
+    }
     private static async Task PlaybackChecks(MainWindow window, MainViewModel session)
     {
         string folder = Path.GetFullPath("artifacts/test-media");

@@ -18,6 +18,8 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     private readonly Dispatcher _dispatcher;
     private readonly string? _libraryFolder;
     private readonly DispatcherTimer _clock;
+    private MusicReactionTimeline? _musicReaction;
+    private readonly PlaybackClock _positionClock = new();
     private readonly CancellationTokenSource _lifetime = new();
     private readonly HashSet<Task> _pending = [];
     private CancellationTokenSource? _load;
@@ -54,6 +56,12 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     public string CurrentTime => MediaFiles.FormatTime(Position);
     public string TotalTime => MediaFiles.FormatTime(Length);
     public int ActiveIndex { get => _activeIndex; private set => Set(ref _activeIndex, value); }
+    public bool MusicReactionReady => _musicReaction is { FrameCount: > 0 };
+    public double MusicReactionLevel => IsPlaying ? _musicReaction?.LevelAt(
+        Math.Clamp(_positionClock.Estimate(Environment.TickCount64), 0, Math.Max(0, Length))) ?? 0 : 0;
+    public bool MusicReactionMoving => IsPlaying && _musicReaction is { } reaction &&
+        Math.Max(reaction.LevelAt(_positionClock.Estimate(Environment.TickCount64)),
+            reaction.LevelAt(_positionClock.Estimate(Environment.TickCount64) + 50)) > 0.0001;
     public string LyricsMessage => IsLoading ? "가사를 불러오고 있습니다." : HasMedia ? "함께 듣는 시간.\n같은 이름의 LRC 또는 SRT 파일을 놓으면 가사가 표시됩니다." : "음악이 시작되면\n이곳에 가사가 흐릅니다.";
     public string LibraryCount => $"{FilteredItems.Cast<object>().Count()} / {Items.Count} 곡";
     public string Search
@@ -93,6 +101,12 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
     public ICommand RevealCommand { get; }
     public ICommand SeekLyricCommand { get; }
     public event Action? SeekCompleted;
+    public event Action? AudioReset;
+
+    private void ResetAudio()
+    {
+        AudioReset?.Invoke();
+    }
 
     public MainViewModel(Dispatcher dispatcher, string? libraryFolder = null)
     {
@@ -101,7 +115,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         FilteredItems = CollectionViewSource.GetDefaultView(Items);
         FilteredItems.Filter = item => item is PlaylistItem entry && entry.Title.Contains(Search, StringComparison.OrdinalIgnoreCase);
         Items.CollectionChanged += (_, _) => Changed(nameof(LibraryCount));
-        _clock = new DispatcherTimer(DispatcherPriority.Background, dispatcher) { Interval = TimeSpan.FromMilliseconds(50) };
+        _clock = new DispatcherTimer(DispatcherPriority.Render, dispatcher) { Interval = TimeSpan.FromMilliseconds(20) };
         _clock.Tick += Tick;
         PlayPauseCommand = new RelayCommand(_ => TogglePlayback(), _ => Player is not null && !IsLoading && (HasMedia || CurrentPath is not null || Items.Count > 0));
         StopCommand = new RelayCommand(async _ => await RunAsync(StopAsync), _ => HasMedia && !IsLoading);
@@ -182,6 +196,10 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         _load = load;
         long generation = ++_generation;
         IsLoading = true;
+        _musicReaction = null;
+        Changed(nameof(MusicReactionReady));
+        _positionClock.Reset(0, Environment.TickCount64);
+        ResetAudio();
         ActiveIndex = -1;
         _timeline = new LyricTimeline([]) { SyncOffsetMs = SyncOffsetMs };
         Changed(nameof(Lines));
@@ -206,6 +224,18 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
             _timeline.SyncOffsetMs = SyncOffsetMs;
             Changed(nameof(Lines));
             Status = Lines.Count == 0 ? "가사 파일이 없습니다. 미디어는 계속 재생됩니다." : "가사를 클릭해 이동 · 수동 스크롤 후 3초 뒤 자동 복귀";
+            if (Lines.Count > 0)
+            {
+                try
+                {
+                    var reaction = await MusicReactionService.AnalyzeAsync(_playback.Engine, path, load.Token);
+                    load.Token.ThrowIfCancellationRequested();
+                    _musicReaction = reaction;
+                    Changed(nameof(MusicReactionReady));
+                }
+                catch (Exception ex) when (ex is IOException or TimeoutException or VLCException)
+                { Status = $"재생과 가사는 계속됩니다. 음악 반응을 분석하지 못했습니다: {ex.Message}"; }
+            }
         }
         finally
         {
@@ -240,6 +270,10 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         if (_playback is not null) await _playback.StopAsync();
         if (_disposed) return;
         _clock.Stop();
+        _musicReaction = null;
+        Changed(nameof(MusicReactionReady));
+        _positionClock.Reset(0, Environment.TickCount64);
+        ResetAudio();
         HasMedia = false;
         HasVideo = false;
         IsLoading = false;
@@ -264,8 +298,10 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         if (_disposed || Player is not { IsSeekable: true } player || Length <= 0) return;
         Position = Math.Clamp(milliseconds, 0, Length);
         player.Time = Position;
+        _positionClock.Reset(Position, Environment.TickCount64, player.IsPlaying, Rate);
         _seekHoldUntil = Environment.TickCount64 + 200;
         ActiveIndex = _timeline.FindCurrentIndex(Position);
+        ResetAudio();
         SeekCompleted?.Invoke();
     }
 
@@ -274,12 +310,15 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         if (_disposed || Player is not { } player) return;
         var state = player.State;
         IsPlaying = state == VLCState.Playing;
+        var interval = TimeSpan.FromMilliseconds(IsPlaying ? 20 : 50);
+        if (_clock.Interval != interval) _clock.Interval = interval;
         HasVideo = HasMedia && player.VoutCount > 0;
         if (state is VLCState.Playing or VLCState.Paused or VLCState.Buffering)
         {
             Length = Math.Max(0, player.Length);
-            if (!IsUserSeeking && Environment.TickCount64 >= _seekHoldUntil)
-                Position = Math.Clamp(player.Time, 0, Math.Max(0, Length));
+            long now = Environment.TickCount64;
+            double position = _positionClock.Read(player.Time, now, IsPlaying, Rate, now < _seekHoldUntil);
+            if (!IsUserSeeking) Position = (long)Math.Clamp(position, 0, Math.Max(0, Length));
             ActiveIndex = _timeline.FindCurrentIndex(Position);
             PlaybackState = state == VLCState.Paused ? "일시정지" : state == VLCState.Buffering ? "버퍼링" : "재생 중";
         }
@@ -343,6 +382,7 @@ public sealed class MainViewModel : ObservableObject, IAsyncDisposable
         _load?.Cancel();
         _clock.Stop();
         _clock.Tick -= Tick;
+        ResetAudio();
         if (Player is { } player) { player.EndReached -= EndReached; player.EncounteredError -= PlaybackError; player.Playing -= StartedPlaying; }
         try { await Task.WhenAll(_pending.ToArray()); }
         catch (Exception ex) { Trace.WriteLine($"Completed session operation during shutdown: {ex.Message}"); }

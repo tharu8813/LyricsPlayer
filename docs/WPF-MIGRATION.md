@@ -29,7 +29,7 @@ Core와 Parsers는 Window/Control/Timer를 참조하지 않습니다. MVVM 명�
 
 재생/정지는 SemaphoreSlim으로 직렬화하며 native Stop을 UI 스레드에서 기다리지 않습니다. 가사 로드는 CancellationToken과 세대 번호로 이전 곡 결과를 차단합니다. 폴더 목록은 백그라운드에서 스캔하고 기존 항목을 재사용합니다. LibVLC Parse는 비동기 API 자체를 사용합니다. 완료 후 Media 해제를 Dispatcher에서 실행하여 VLC 콜백 스택 안의 네이티브 해제를 피합니다. 종료는 감시·타이머·이벤트를 중단하고 진행 중인 작업을 기다린 뒤 플레이어와 엔진을 해제합니다.
 
-재생 타임라인은 50ms DispatcherTimer로 계산합니다. UI 애니메이션과 독립적이고 대기/정지 상태에서는 타이머를 중단합니다. 앱에는 CompositionTarget.Rendering 상시 구독이 없습니다.
+재생 타임라인은 재생 중 20ms·일시정지 중 50ms DispatcherTimer와 단조 시계 보간으로 계산합니다. 대기/정지 상태에서는 타이머를 중단합니다. 음악 반응은 사전 분석한 곡선을 재생 시각에 맞춰 읽으며, 해당 가사 View가 재생 중일 때만 CompositionTarget.Rendering을 구독합니다. 일시정지·정지·Unloaded 시 구독을 해제합니다. 상세 기록은 [음악 반응 및 시계 개선](AUDIO-REACTION.md)에 있습니다.
 
 ## 기능 보존 체크리스트
 
@@ -67,8 +67,8 @@ Core와 Parsers는 Window/Control/Timer를 참조하지 않습니다. MVVM 명�
 
 영상/가사/라이브러리의 3열, 1000×620 최소 크기, 하단 고정 transport. 짙은 녹색 계열 표면과 낮은 채도의 세이지 강조색, 운영체제 기본 Segoe UI 폰트, 시간 표시용 Consolas, 자체 Path 아이콘과 기존 앱 아이콘을 사용합니다. 외부 이미지·폰트는 추가하지 않았습니다. 가사와 검색 결과 목록은 가상화되어 있습니다.
 
-- 가사 자동 이동: 320ms Cubic EaseOut; 탐색 직후 150ms 빠른 재동기화. 새 입력은 현재 스크롤 위치에서 애니메이션을 교체합니다.
-- 가사 강조: 280~320ms 불투명도와 0.97→1 배율. FontSize를 매 프레임 바꾸지 않습니다.
+- 가사 자동 이동: 360ms Cubic EaseInOut; 탐색 직후 150ms 빠른 재동기화. 새 입력은 현재 스크롤 위치에서 애니메이션을 교체합니다.
+- 가사 강조: 360ms 불투명도 0.34→1과 1→1.08 배율. 음악 확대는 별도의 Transform으로 최대 12.5% 추가하며 FontSize나 줄바꿈을 매 프레임 바꾸지 않습니다.
 - 목록: 140/180ms hover와 250ms 재생 강조. 선택 테두리와 실제 재생 강조를 구분합니다.
 - 버튼: hover 배경 전환, pressed 0.95 배율, 키보드 포커스 테두리와 disabled 상태.
 - 전체화면 컨트롤: 220ms fade와 8px 이동. 레이아웃 높이는 유지하여 영상 출력 영역을 흔들지 않습니다.

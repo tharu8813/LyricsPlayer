@@ -2,23 +2,32 @@
   <Grid>
     <ListBox x:Name="Rows" ItemsSource="{Binding Lines}" SelectedIndex="{Binding ActiveIndex, Mode=OneWay}" SelectionChanged="ActiveChanged" PreviewMouseWheel="ManualWheel" PreviewMouseLeftButtonDown="RowMouseDown" PreviewKeyDown="RowKeyDown" RequestBringIntoView="PreventBring" SizeChanged="ViewResized" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.CanContentScroll="True" AutomationProperties.Name="동기화 가사: 위아래 화살표로 탐색">
       <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem">
-        <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="18,13"/><Setter Property="Margin" Value="8,2"/><Setter Property="MinHeight" Value="66"/><Setter Property="IsTabStop" Value="False"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="18,18"/><Setter Property="Margin" Value="8,2"/><Setter Property="MinHeight" Value="74"/><Setter Property="IsTabStop" Value="False"/>
         <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem">
           <Border x:Name="Frame" Padding="{TemplateBinding Padding}" CornerRadius="8" Background="Transparent">
-            <ContentPresenter x:Name="Words" Opacity="0.42" RenderTransformOrigin="0.5,0.5"><ContentPresenter.RenderTransform><ScaleTransform ScaleX="0.97" ScaleY="0.97"/></ContentPresenter.RenderTransform></ContentPresenter>
+            <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="0.1075*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="0.1075*"/></Grid.ColumnDefinitions>
+              <Border x:Name="Role" Grid.Column="1" RenderTransformOrigin="0.5,0.5">
+                <Border.RenderTransform><ScaleTransform/></Border.RenderTransform>
+                <Border x:Name="Pulse" RenderTransformOrigin="0.5,0.5">
+                  <Border.RenderTransform><ScaleTransform/></Border.RenderTransform>
+                  <ContentPresenter x:Name="Words" Opacity="0.34"/>
+                </Border>
+              </Border>
+            </Grid>
           </Border>
           <ControlTemplate.Triggers>
             <Trigger Property="IsSelected" Value="True">
               <Setter Property="Foreground" Value="{StaticResource Accent}"/>
               <Trigger.EnterActions><BeginStoryboard><Storyboard>
-                <DoubleAnimation Storyboard.TargetName="Words" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.28"/>
-                <DoubleAnimation Storyboard.TargetName="Words" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1" Duration="0:0:0.32" EasingFunction="{StaticResource MotionEasing}"/>
-                <DoubleAnimation Storyboard.TargetName="Words" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1" Duration="0:0:0.32" EasingFunction="{StaticResource MotionEasing}"/>
+                <DoubleAnimation Storyboard.TargetName="Words" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.36"><DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseInOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                <DoubleAnimation Storyboard.TargetName="Role" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1.08" Duration="0:0:0.36"><DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseInOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+                <DoubleAnimation Storyboard.TargetName="Role" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1.08" Duration="0:0:0.36"><DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseInOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
               </Storyboard></BeginStoryboard></Trigger.EnterActions>
               <Trigger.ExitActions><BeginStoryboard><Storyboard>
-                <DoubleAnimation Storyboard.TargetName="Words" Storyboard.TargetProperty="Opacity" To="0.42" Duration="0:0:0.32"/>
-                <DoubleAnimation Storyboard.TargetName="Words" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="0.97" Duration="0:0:0.32"/>
-                <DoubleAnimation Storyboard.TargetName="Words" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="0.97" Duration="0:0:0.32"/>
+                <DoubleAnimation Storyboard.TargetName="Words" Storyboard.TargetProperty="Opacity" To="0.34" Duration="0:0:0.36"/>
+                <DoubleAnimation Storyboard.TargetName="Role" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" To="1" Duration="0:0:0.36"/>
+                <DoubleAnimation Storyboard.TargetName="Role" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" To="1" Duration="0:0:0.36"/>
               </Storyboard></BeginStoryboard></Trigger.ExitActions>
             </Trigger>
             <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Frame" Property="Background" Value="{StaticResource SurfaceHover}"/><Setter Property="Cursor" Value="Hand"/></Trigger>

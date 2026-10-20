@@ -11,6 +11,26 @@ if ($LASTEXITCODE -ne 0) { throw 'MKV fixture creation failed' }
 if ($LASTEXITCODE -ne 0) { throw 'WMV fixture creation failed' }
 & $FFmpeg -hide_banner -loglevel error -y -f lavfi -i 'anullsrc=r=44100:cl=stereo' -t 18 -c:a libmp3lame (Join-Path $Output '02 - Quiet room.mp3')
 if ($LASTEXITCODE -ne 0) { throw 'MP3 fixture creation failed' }
+$audioFolder = Join-Path $Output 'audio-reaction'
+New-Item -ItemType Directory -Force -Path $audioFolder | Out-Null
+& $FFmpeg -hide_banner -loglevel error -y -f lavfi -i 'aevalsrc=0.35*sin(2*PI*1000*t)*lt(t\,3)+0.55*exp(-15*mod(t-3\,0.5))*sin(2*PI*65*t)*between(t\,3\,6):s=44100:d=12' -c:a libmp3lame (Join-Path $audioFolder 'Reaction.mp3')
+if ($LASTEXITCODE -ne 0) { throw 'Audio reaction fixture creation failed' }
+& $FFmpeg -hide_banner -loglevel error -y -f lavfi -i 'aevalsrc=0.35*exp(-8*mod(t\,0.5))*sin(2*PI*90*t)+0.08*sin(2*PI*330*t)*(0.5+0.5*sin(2*PI*0.5*t)):s=44100:d=36' -c:a libmp3lame (Join-Path $audioFolder 'Rhythm.mp3')
+if ($LASTEXITCODE -ne 0) { throw 'Rhythmic audio fixture creation failed' }
+@'
+[00:00]베이스가 칠 때 커지는 가사
+[00:06]리듬을 따라 천천히 제자리로
+[00:12]한 줄의 가사와 함께 듣는 음악
+[00:18]A little closer to the music
+[00:24]같은 음악, 같은 가사
+[00:30]천천히 원래 크기로 돌아오는 순간
+'@ | Set-Content (Join-Path $audioFolder 'Rhythm.lrc') -Encoding utf8
+@'
+[00:00]고음에는 크기가 그대로
+[00:03]베이스가 칠 때 커지는 가사
+[00:06]천천히 원래 크기로
+[00:09]같은 가사, 같은 음악
+'@ | Set-Content (Join-Path $audioFolder 'Reaction.lrc') -Encoding utf8
 @'
 [00:00.00]A little closer to the music
 [00:02.00]Evening light on the window
