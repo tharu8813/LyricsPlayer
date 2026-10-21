@@ -1,6 +1,6 @@
 <UserControl x:Class="LyricsPlayer.Views.LyricsView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:LyricsPlayer.Views" Focusable="False">
   <Grid>
-    <ListBox x:Name="Rows" ItemsSource="{Binding Lines}" SelectedIndex="{Binding ActiveIndex, Mode=OneWay}" SelectionChanged="ActiveChanged" PreviewMouseWheel="ManualWheel" PreviewMouseLeftButtonDown="RowMouseDown" PreviewKeyDown="RowKeyDown" RequestBringIntoView="PreventBring" SizeChanged="ViewResized" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.CanContentScroll="True" AutomationProperties.Name="동기화 가사: 위아래 화살표로 탐색">
+    <ListBox x:Name="Rows" ItemsSource="{Binding Lines}" SelectedIndex="{Binding ActiveIndex, Mode=OneWay}" SelectionChanged="ActiveChanged" PreviewMouseWheel="ManualWheel" PreviewMouseLeftButtonDown="RowMouseDown" PreviewKeyDown="RowKeyDown" RequestBringIntoView="PreventBring" SizeChanged="ViewResized" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.CanContentScroll="True" VirtualizingPanel.ScrollUnit="Pixel" VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling" AutomationProperties.Name="동기화 가사: 위아래 화살표로 탐색">
       <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem">
         <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="18,18"/><Setter Property="Margin" Value="8,2"/><Setter Property="MinHeight" Value="74"/><Setter Property="IsTabStop" Value="False"/>
         <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem">
@@ -11,7 +11,7 @@
                 <Border.RenderTransform><ScaleTransform/></Border.RenderTransform>
                 <Border x:Name="Pulse" RenderTransformOrigin="0.5,0.5">
                   <Border.RenderTransform><ScaleTransform/></Border.RenderTransform>
-                  <ContentPresenter x:Name="Words" Opacity="0.34"/>
+                  <ContentPresenter x:Name="Words" Opacity="0.34" SizeChanged="WordsResized"/>
                 </Border>
               </Border>
             </Grid>

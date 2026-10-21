@@ -1,5 +1,7 @@
 # Playlist Canvas 기준 음악 반응과 가사 시계
 
+> 아래는 이전 구현과 당시 실행 결과의 기록입니다. 현재 분석 분리·탐색 응답 확인·설정·배포 및 미검증 범위는 [Critical Audit](CRITICAL-AUDIT.md)을 기준으로 확인하세요.
+
 기준 저장소: [Playlist Canvas](https://github.com/tharu8813/Playlist-Canvas), 커밋 `8cd38d42c10b3ca6f18b4d7f7e0b6760e548816e`. 2026-10-21 로컬 체크아웃의 origin·HEAD와 GitHub main이 같은 커밋임을 확인하고 실제 구현을 읽었습니다.
 
 ## 채택한 동작

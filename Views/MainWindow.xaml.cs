@@ -21,6 +21,9 @@ public partial class MainWindow : Window
     private bool _closing, _closed, _controlsHidden;
     private WindowState _restoreState;
     private Point? _lastPointer;
+    private readonly string? _settingsPath;
+    private readonly PlayerSettings _initialSettings;
+    private bool? _libraryOverride;
     public bool IsFullscreen { get; private set; }
     public bool ControlsHidden => _controlsHidden;
     public IntPtr VideoOutputHandle => _session.Player?.Hwnd ?? IntPtr.Zero;
@@ -30,7 +33,9 @@ public partial class MainWindow : Window
     public MainWindow(string? initialFile = null, string? libraryFolder = null)
     {
         InitializeComponent();
-        _session = new MainViewModel(Dispatcher, libraryFolder);
+        _settingsPath = libraryFolder is null ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LyricsPlayer", "settings.json") : null;
+        _initialSettings = PlayerSettings.Load(_settingsPath);
+        _session = new MainViewModel(Dispatcher, libraryFolder, settings: _initialSettings);
         DataContext = _session;
         _idle.Tick += IdleElapsed;
         Loaded += async (_, _) => await _session.RunAsync(() => _session.InitializeAsync(initialFile));
@@ -41,6 +46,13 @@ public partial class MainWindow : Window
     {
         int dark = 1;
         DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref dark, sizeof(int));
+        var area = SystemParameters.WorkArea;
+        MinWidth = Math.Min(MinWidth, area.Width);
+        MinHeight = Math.Min(MinHeight, area.Height);
+        Width = Math.Min(Width, area.Width);
+        Height = Math.Min(Height, area.Height);
+        Left = Math.Clamp(Left, area.Left, area.Right - Width);
+        Top = Math.Clamp(Top, area.Top, area.Bottom - Height);
     }
     private async void OpenFile(object sender, RoutedEventArgs args)
     {
@@ -94,6 +106,8 @@ public partial class MainWindow : Window
             LibraryColumn.Width = LibraryGap.Width = new GridLength(0);
             ContentGrid.Margin = new Thickness(12);
             MediaColumn.Width = new GridLength(2.6, GridUnitType.Star);
+            MediaColumn.MinWidth = 220;
+            MediaPanel.Visibility = Visibility.Visible;
             FullscreenHint.Visibility = Visibility.Visible;
             Topmost = true;
             WindowState = WindowState.Maximized;
@@ -115,6 +129,26 @@ public partial class MainWindow : Window
             WindowState = _restoreState;
         }
         SetControlsVisible(true);
+        UpdateLibraryLayout();
+    }
+
+    private void ToggleLibrary(object sender, RoutedEventArgs args)
+    { _libraryOverride = LibraryPanel.Visibility != Visibility.Visible; UpdateLibraryLayout(); }
+
+    private void WindowResized(object sender, SizeChangedEventArgs args) => UpdateLibraryLayout();
+
+    private void UpdateLibraryLayout()
+    {
+        if (LibraryPanel is null || IsFullscreen) return;
+        bool compact = ActualWidth < 1180;
+        bool show = _libraryOverride ?? !compact;
+        LibraryPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        LibraryColumn.Width = new GridLength(show ? 270 : 0);
+        LibraryGap.Width = new GridLength(show ? 24 : 0);
+        bool screen = !(compact && show);
+        MediaPanel.Visibility = screen ? Visibility.Visible : Visibility.Collapsed;
+        MediaColumn.MinWidth = screen ? 220 : 0;
+        MediaColumn.Width = screen ? new GridLength(1.08, GridUnitType.Star) : new GridLength(0);
     }
 
     private void UserActivity(object sender, RoutedEventArgs args)
@@ -181,7 +215,7 @@ public partial class MainWindow : Window
     {
         if (_pip is null)
         {
-            _pip = new LyricsPipWindow(_session) { Owner = this };
+            _pip = new LyricsPipWindow(_session);
             _pip.Closed += (_, _) => _pip = null;
             _pip.Show();
         }
@@ -199,6 +233,13 @@ public partial class MainWindow : Window
         _idle.Stop();
         _idle.Tick -= IdleElapsed;
         _pip?.CloseImmediately();
+        if (_settingsPath is not null && (_session.Volume != _initialSettings.Volume ||
+            _session.SyncOffsetMs != _initialSettings.SyncOffsetMs || _session.MusicReactionEnabled != _initialSettings.MusicReactionEnabled))
+        {
+            try { new PlayerSettings { Volume = _session.Volume, SyncOffsetMs = _session.SyncOffsetMs, MusicReactionEnabled = _session.MusicReactionEnabled }.Save(_settingsPath); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            { System.Diagnostics.Trace.WriteLine($"Settings could not be saved: {ex.Message}"); }
+        }
         // Detach only on final shutdown, before LibVLC releases its output handle.
         Video.MediaPlayer = null;
         try { await _session.DisposeAsync(); }

@@ -22,6 +22,7 @@
     <Using Include="System.IO" />
     <Resource Include="Assets\icon.ico" />
     <None Update="LICENSE" CopyToPublishDirectory="PreserveNewest" />
+    <None Update="THIRD-PARTY-NOTICES.md;licenses\**" CopyToPublishDirectory="PreserveNewest" />
     <Compile Remove="Tests\**;tools\**" />
     <Page Remove="Tests\**;tools\**" />
   </ItemGroup>

@@ -10,7 +10,8 @@ public sealed class MusicReactionTimeline
 
     public MusicReactionTimeline(IReadOnlyList<double> energy)
     {
-        double[] sorted = energy.Order().ToArray();
+        double[] clean = energy.Select(value => double.IsFinite(value) ? Math.Max(0, value) : 0).ToArray();
+        double[] sorted = clean.Order().ToArray();
         double Percentile(double fraction)
         {
             if (sorted.Length == 0) return 0;
@@ -19,13 +20,15 @@ public sealed class MusicReactionTimeline
             return sorted[first] + (sorted[Math.Min(first + 1, sorted.Length - 1)] - sorted[first]) * (index - first);
         }
         double floor = Percentile(0.2), span = Math.Max(1e-6, Percentile(0.95) - floor);
+        bool inaudible = sorted.Length == 0 || sorted[^1] < 0.001;
         double attack = 1 - Math.Exp(-Math.Log(10) / (FramesPerSecond * AttackSeconds));
         double release = 1 - Math.Exp(-Math.Log(10) / (FramesPerSecond * ReleaseSeconds));
         _levels = new double[energy.Count];
         double previous = 0;
         for (int i = 0; i < energy.Count; i++)
         {
-            double target = Math.Clamp((energy[i] - floor) / span, 0, 1);
+            // Below -60 dBFS, track normalization would magnify quantization noise.
+            double target = inaudible ? 0 : Math.Clamp((clean[i] - floor) / span, 0, 1);
             previous += (target - previous) * (target > previous ? attack : release);
             _levels[i] = previous;
         }

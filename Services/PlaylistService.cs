@@ -32,6 +32,9 @@ public sealed class PlaylistService : IAsyncDisposable
 
     public void StartWatching()
     {
+        if (_disposed) return;
+        _watcher?.Dispose();
+        _watcher = null;
         try
         {
             Directory.CreateDirectory(Folder);
@@ -48,11 +51,27 @@ public sealed class PlaylistService : IAsyncDisposable
             _watcher.EnableRaisingEvents = true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
-        { StatusChanged?.Invoke($"폴더 자동 감시를 시작할 수 없습니다: {ex.Message}"); }
+        {
+            _watcher?.Dispose();
+            _watcher = null;
+            StatusChanged?.Invoke($"폴더 자동 감시를 시작할 수 없습니다. 5초 후 다시 시도합니다: {ex.Message}");
+            _debounce.Interval = TimeSpan.FromSeconds(5);
+            _debounce.Start();
+        }
     }
 
     private void FileChanged(object sender, FileSystemEventArgs args) => ScheduleRefresh();
-    private void WatcherError(object sender, ErrorEventArgs args) => ScheduleRefresh();
+    private void WatcherError(object sender, ErrorEventArgs args)
+    {
+        if (_dispatcher.HasShutdownStarted) return;
+        _dispatcher.BeginInvoke(() =>
+        {
+            if (_disposed || !ReferenceEquals(sender, _watcher)) return;
+            StatusChanged?.Invoke($"폴더 감시를 복구합니다: {args.GetException().Message}");
+            StartWatching();
+            ScheduleRefresh();
+        });
+    }
     private void ScheduleRefresh()
     {
         if (_lifetime.IsCancellationRequested || _dispatcher.HasShutdownStarted) return;
@@ -60,12 +79,13 @@ public sealed class PlaylistService : IAsyncDisposable
         {
             if (_disposed) return;
             _debounce.Stop();
+            _debounce.Interval = TimeSpan.FromMilliseconds(350);
             _debounce.Start();
         });
     }
 
     private async void DebounceTick(object? sender, EventArgs args)
-    { _debounce.Stop(); await RefreshAsync(); }
+    { _debounce.Stop(); if (_watcher is null) StartWatching(); await RefreshAsync(); }
 
     public async Task RefreshAsync()
     {
@@ -88,9 +108,19 @@ public sealed class PlaylistService : IAsyncDisposable
 
     private async Task RefreshCoreAsync(CancellationToken token)
     {
-        var files = await Task.Run(() => Directory.EnumerateFiles(Folder).Where(MediaFiles.IsSupported)
-            .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
-            .Select(path => new FileInfo(path)).Select(info => (info.FullName, info.Length, info.LastWriteTimeUtc)).ToList(), token);
+        var files = await Task.Run(() =>
+        {
+            var found = new List<(string FullName, long Length, DateTime LastWriteTimeUtc)>();
+            foreach (string path in Directory.EnumerateFiles(Folder).Where(MediaFiles.IsSupported)
+                         .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
+            {
+                token.ThrowIfCancellationRequested();
+                try { var info = new FileInfo(path); found.Add((info.FullName, info.Length, info.LastWriteTimeUtc)); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                { System.Diagnostics.Trace.WriteLine($"Skipped changing media file: {path}: {ex.Message}"); }
+            }
+            return found;
+        }, token);
         token.ThrowIfCancellationRequested();
         var paths = files.Select(f => f.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         for (int i = Items.Count - 1; i >= 0; i--)
@@ -120,10 +150,11 @@ public sealed class PlaylistService : IAsyncDisposable
             {
                 using var media = new Media(_engine, new Uri(item.Path));
                 // Resume on the dispatcher: releasing Media inside VLC's parse callback can corrupt its native event stack.
-                await media.Parse(MediaParseOptions.ParseLocal, 3000, token);
+                var parsed = await media.Parse(MediaParseOptions.ParseLocal, 3000, token);
                 token.ThrowIfCancellationRequested();
                 long duration = media.Duration;
                 if (duration > 0) item.Duration = MediaFiles.FormatTime(duration);
+                else StatusChanged?.Invoke($"재생시간을 읽을 수 없습니다: {item.Title} ({parsed}). 갱신하면 다시 시도합니다.");
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             { StatusChanged?.Invoke($"재생시간을 읽을 수 없습니다: {item.Title}"); }

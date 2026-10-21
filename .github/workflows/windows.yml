@@ -1,0 +1,26 @@
+name: Windows build
+on:
+  push:
+    branches: [main, 'codex/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  portable:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - run: dotnet restore Tests/LyricsPlayer.Checks.csproj
+      - run: dotnet build Tests/LyricsPlayer.Checks.csproj -c Release --no-restore -m:1 -p:UseSharedCompilation=false
+      - run: dotnet Tests/bin/Release/net8.0-windows/win-x64/LyricsPlayer.Checks.dll
+      - run: dotnet publish LyricsPlayer.csproj -c Release -r win-x64 --self-contained true -o artifacts/portable -m:1 -p:UseSharedCompilation=false
+      - shell: pwsh
+        run: ./tools/Verify-Portable.ps1 -Folder artifacts/portable
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LyricsPlayer-portable-win-x64
+          path: artifacts/portable/

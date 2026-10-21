@@ -1,5 +1,7 @@
 # WPF migration: architecture and verification
 
+> 아래는 이전 구현과 당시 실행 결과의 기록입니다. 현재 분석 분리·탐색 응답 확인·설정·배포 및 미검증 범위는 [Critical Audit](CRITICAL-AUDIT.md)을 기준으로 확인하세요.
+
 기준: `44fb0d4d9774c7e38061052467ab54f288a76b96`. 전환 브랜치: `codex/wpf-migration`.
 검증일: 2026-10-20, Windows x64. 이 문서는 소스 검사, 자동 실행 검사, 화면 확인, 아직 실행하지 않은 항목을 구분합니다.
 

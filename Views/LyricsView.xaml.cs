@@ -21,6 +21,7 @@ public partial class LyricsView : UserControl
     private ScaleTransform? _pulse;
     private bool _rendering;
     private TimeSpan _lastFrame;
+    private long _activationAt;
     public bool IsFollowing => !_manual;
     public bool IsMusicAnimating => _rendering;
     private static readonly DependencyProperty OffsetProperty = DependencyProperty.Register(
@@ -41,6 +42,7 @@ public partial class LyricsView : UserControl
 
     private void Attach(object sender, RoutedEventArgs args)
     {
+        _manual = false;
         _scroll = FindChild<ScrollViewer>(Rows);
         _session = DataContext as MainViewModel;
         if (_session is not null)
@@ -52,6 +54,7 @@ public partial class LyricsView : UserControl
         Center(false);
         FindPulse();
         SystemParameters.StaticPropertyChanged += MotionPreferenceChanged;
+        ApplyMotionPreference(SystemParameters.ClientAreaAnimation);
         UpdateRendering();
     }
     private void Detach(object sender, RoutedEventArgs args)
@@ -106,9 +109,18 @@ public partial class LyricsView : UserControl
         Center(true);
     }
     private void Resync() { _resume.Stop(); _manual = false; Center(true, true); }
-    private void ActiveChanged(object sender, SelectionChangedEventArgs args) { if (!_manual) Center(true); FindPulse(); ApplyMusicLevel(); }
+    private void ActiveChanged(object sender, SelectionChangedEventArgs args) { if (!_manual) Center(true); FindPulse(); ApplyMotionPreference(SystemParameters.ClientAreaAnimation); ApplyMusicLevel(); }
     private void PreventBring(object sender, RequestBringIntoViewEventArgs args) { if (!_allowBring) args.Handled = true; }
     private void ViewResized(object sender, SizeChangedEventArgs args) { if (!_manual) Center(false); }
+
+    private void WordsResized(object sender, SizeChangedEventArgs args)
+    {
+        if (sender is ContentPresenter { TemplatedParent: ListBoxItem row } && row.Template.FindName("Frame", row) is Border frame)
+        {
+            double margin = Math.Max(18, args.NewSize.Height * 0.11);
+            frame.Padding = new Thickness(18, margin, 18, margin);
+        }
+    }
 
     private void ResetPulse()
     {
@@ -133,16 +145,33 @@ public partial class LyricsView : UserControl
         if (args.PropertyName is nameof(MainViewModel.Position) or nameof(MainViewModel.IsPlaying) or nameof(MainViewModel.MusicReactionReady)) UpdateRendering();
     }
 
-    private void ResetMotion() { ResetPulse(); FindPulse(); UpdateRendering(); ApplyMusicLevel(); }
+    private void ResetMotion() { _activationAt = Environment.TickCount64; ResetPulse(); FindPulse(); UpdateRendering(); ApplyMusicLevel(); }
     private void MotionPreferenceChanged(object? sender, PropertyChangedEventArgs args)
-    { if (args.PropertyName == nameof(SystemParameters.ClientAreaAnimation)) UpdateRendering(); }
+    { if (args.PropertyName == nameof(SystemParameters.ClientAreaAnimation)) { UpdateRendering(); ApplyMotionPreference(SystemParameters.ClientAreaAnimation); } }
+
+    private void ApplyMotionPreference(bool animations)
+    {
+        if (animations) return;
+        foreach (var row in FindChild<VirtualizingStackPanel>(Rows)?.Children.OfType<ListBoxItem>() ?? Enumerable.Empty<ListBoxItem>())
+        {
+            if (row.Template.FindName("Words", row) is ContentPresenter words)
+            { words.BeginAnimation(OpacityProperty, null); words.Opacity = row.IsSelected ? 1 : 0.34; }
+            if (row.Template.FindName("Role", row) is Border { RenderTransform: ScaleTransform role } border)
+            {
+                if (role.IsFrozen) { role = role.Clone(); border.RenderTransform = role; }
+                role.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                role.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                role.ScaleX = role.ScaleY = row.IsSelected ? 1.08 : 1;
+            }
+        }
+    }
 
     private void UpdateRendering()
     {
         bool active = IsLoaded && _session is { MusicReactionMoving: true } && SystemParameters.ClientAreaAnimation;
         if (active == _rendering) return;
         _rendering = active;
-        if (active) { _lastFrame = TimeSpan.MinValue; CompositionTarget.Rendering += RenderMusic; }
+        if (active) { _lastFrame = TimeSpan.MinValue; _activationAt = Environment.TickCount64; CompositionTarget.Rendering += RenderMusic; }
         else
         {
             CompositionTarget.Rendering -= RenderMusic;
@@ -176,7 +205,9 @@ public partial class LyricsView : UserControl
             _pulse.BeginAnimation(ScaleTransform.ScaleXProperty, null);
             _pulse.BeginAnimation(ScaleTransform.ScaleYProperty, null);
         }
-        double scale = 1 + (_session?.MusicReactionLevel ?? 0) * MusicReactionTimeline.Strength;
+        long now = Environment.TickCount64;
+        double target = _session?.MusicReactionLevel ?? 0;
+        double scale = 1 + target * Math.Clamp((now - _activationAt) / 60d, 0, 1) * MusicReactionTimeline.Strength;
         _pulse.ScaleX = _pulse.ScaleY = scale;
     }
 
@@ -195,6 +226,9 @@ public partial class LyricsView : UserControl
                 try { Rows.ScrollIntoView(Rows.SelectedItem); Rows.UpdateLayout(); }
                 finally { _allowBring = false; }
                 row = Rows.ItemContainerGenerator.ContainerFromIndex(Rows.SelectedIndex) as ListBoxItem;
+                // A virtualized jump must not animate back across unrealized rows.
+                previous = _scroll.VerticalOffset;
+                fast = true;
             }
             if (row is null) return;
             double target = Math.Clamp(_scroll.VerticalOffset + row.TranslatePoint(new Point(), _scroll).Y

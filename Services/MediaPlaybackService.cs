@@ -24,6 +24,7 @@ public sealed class MediaPlaybackService : IAsyncDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             await Task.Run(() =>
             {
+                token.ThrowIfCancellationRequested();
                 Player.Stop();
                 token.ThrowIfCancellationRequested();
                 using var media = new Media(Engine, new Uri(path));

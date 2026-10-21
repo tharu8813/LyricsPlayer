@@ -11,7 +11,7 @@ using LyricsPlayer.Services;
 using LyricsPlayer.ViewModels;
 using LyricsPlayer.Views;
 
-internal static class Program
+internal static partial class Program
 {
     private static int _checks;
     private static void Check(bool condition, string name)
@@ -26,6 +26,8 @@ internal static class Program
         try
         {
             PureChecks();
+            if (args.Contains("--published-exe")) return PublishedExeCheck();
+            if (args.Contains("--benchmark")) return BenchmarkChecks();
             if (args.Contains("--runtime") || args.Contains("--audio-runtime"))
                 return RuntimeChecks(args.Contains("--hold"), args.Contains("--audio-runtime"));
             Console.WriteLine($"{_checks} checks passed.");
@@ -113,10 +115,13 @@ internal static class Program
         clock.Reset(1000, 0, true);
         Check(clock.Read(1200, 250, true, 1) == 1250 && clock.Estimate(350) == 1330,
             "small native clock corrections settle gradually instead of rewinding lyrics");
+        AuditPureChecks();
     }
     private static int RuntimeChecks(bool hold, bool audioOnly)
     {
         int result = 1;
+        foreach (string name in new[] { "99 - Watcher test.mp3", "99 - Renamed test.MP3", "97 - Recovery.mp3", "98 - Large lyrics.mp4", "98 - Large lyrics.lrc" })
+            File.Delete(Path.Combine("artifacts/test-media", name));
         var app = new LyricsPlayer.App();
         app.InitializeComponent();
         var window = new MainWindow(libraryFolder: Path.GetFullPath("artifacts/test-media"));
@@ -140,6 +145,7 @@ internal static class Program
                 }
                 await AudioChecks(window, session);
                 await AnalysisSafetyChecks(window, session);
+                await AuditRuntimeChecks(window, session);
                 if (!audioOnly) await PlaybackChecks(window, session);
                 else await LargeLyricsCheck(window, session, Path.GetFullPath("artifacts/test-media/01 - Evening light.mp4"), Path.GetFullPath("artifacts/test-media"));
                 if (hold)
@@ -162,7 +168,6 @@ internal static class Program
                     Console.WriteLine("HOLD: ready for visual inspection for 60 seconds");
                     await Task.Delay(60000);
                 }
-                Console.WriteLine($"{_checks} checks passed.");
                 result = 0;
             }
             catch (Exception ex) { Console.Error.WriteLine(ex); }
@@ -170,6 +175,7 @@ internal static class Program
         };
         app.Run(window);
         Check(((MainViewModel)window.DataContext).Player?.NativeReference == IntPtr.Zero, "native player released after window shutdown");
+        if (result == 0) Console.WriteLine($"{_checks} checks passed, including shutdown.");
         return result;
     }
 
@@ -180,8 +186,10 @@ internal static class Program
         var elapsed = Stopwatch.StartNew();
         await session.PlayFileAsync(path);
         await Until(() => session.IsPlaying && session.Length > 0, "real playback with shared-engine analysis");
-        Check(session.MusicReactionReady && elapsed.ElapsedMilliseconds < 5000,
-            $"whole track is analyzed ahead of playback ({elapsed.ElapsedMilliseconds}ms)");
+        Console.WriteLine($"PLAYBACK PREPARE: {elapsed.ElapsedMilliseconds}ms (analysis is independent)");
+        await Until(() => session.ReactionState != ReactionStatus.Analyzing, "background reaction completion");
+        Check(session.MusicReactionReady, "background analysis completes without holding playback preparation");
+        await Task.Delay(450);
         var view = (LyricsView)window.FindName("MainLyrics");
         var rows = Find<ListBox>(view).Single();
         session.Seek(1000);
@@ -287,6 +295,7 @@ internal static class Program
         string latest = Path.Combine(folder, "02 - Quiet room.mp3");
         await session.PlayFileAsync(latest);
         await first;
+        await Until(() => session.MusicReactionReady, "latest track reaction ready");
         Check(session.CurrentPath == latest && session.Lines[0].Text.Contains("두 번째") && session.MusicReactionReady,
             "rapid switching rejects the cancelled track's reaction and lyrics");
         await session.PlayFileAsync(Path.Combine(folder, "01 - Evening light.mp4"));
@@ -319,7 +328,8 @@ internal static class Program
         await Until(() => session.Player!.Volume == 37 && Math.Abs(session.Player.Rate - 1.25) < 0.01, "native volume and rate propagation");
         Check(session.Player!.Volume == 37 && Math.Abs(session.Player.Rate - 1.25) < 0.01, "volume and playback rate reach engine");
         session.SeekLyricCommand.Execute(session.Lines[2]);
-        Check(session.Position == 4000 && session.ActiveIndex == 2, "lyric click seeks unadjusted timestamp immediately");
+        await Until(() => Math.Abs(session.Player!.Time - 4000) < 350 && session.ActiveIndex == 2, "lyric seek acknowledgement");
+        Check(Math.Abs(session.Position - 4000) < 350, "lyric click follows acknowledged unadjusted timestamp");
         await Task.Delay(350);
         long pausedTime = session.Player.Time;
         var output = window.VideoOutputHandle;
@@ -355,7 +365,8 @@ internal static class Program
         session.Seek(8000);
         session.Seek(12000);
         session.Seek(2000);
-        Check(session.ActiveIndex == 1 && lyrics.IsFollowing, "rapid seeking immediately resynchronizes without queued animations");
+        await Until(() => session.ActiveIndex == 1 && lyrics.IsFollowing, "rapid seek acknowledgement");
+        Check(session.ActiveIndex == 1 && lyrics.IsFollowing, "rapid seeking resynchronizes after native acknowledgement");
         window.Width = 1000;
         window.Height = 620;
         await Task.Delay(150);
@@ -380,13 +391,13 @@ internal static class Program
         {
             File.Copy(mp3, watched, true);
             await Until(() => session.Items.Any(x => x.Path == watched), "watch create");
-            File.Move(watched, renamed, true);
+            await FileAction(() => File.Move(watched, renamed, true));
             await Until(() => session.Items.Any(x => x.Path == renamed) && session.Items.All(x => x.Path != watched), "watch rename");
-            File.Delete(renamed);
+            await FileAction(() => File.Delete(renamed));
             await Until(() => session.Items.Count == 4, "watch delete");
             Check(session.Items.Count == 4, "debounced watcher detects create, rename and removal including uppercase extension");
         }
-        finally { File.Delete(watched); File.Delete(renamed); }
+        finally { await FileAction(() => File.Delete(watched)); await FileAction(() => File.Delete(renamed)); }
         session.Search = "Evening";
         Check(session.FilteredItems.Cast<object>().Count() == 1, "case insensitive filename search");
         await session.PlayFileAsync(mp4);
@@ -406,6 +417,9 @@ internal static class Program
         await Until(() => session.Player.State == VLCState.Ended, "last item completion");
         await Task.Delay(200);
         Check(session.CurrentPath == wmv && !session.NextCommand.CanExecute(null), "last item ends without wrapping");
+        session.TogglePlayback();
+        await Until(() => session.IsPlaying && session.Player.Time < 2000, "restart ended media");
+        Check(session.CurrentPath == wmv, "play after final Ended restarts the same track without wrapping");
         await session.RunAsync(() => Task.WhenAll(session.PlayFileAsync(mp4), session.PlayFileAsync(mp3)));
         await Until(() => session.CurrentPath == mp3 && session.IsPlaying && !session.IsLoading, "rapid media switching");
         Check(session.Lines[0].Text.Contains("두 번째"), "latest media switch wins over stale lyric load");
@@ -460,7 +474,7 @@ internal static class Program
             CompositionTarget.Rendering += render;
             try
             {
-                for (int i = 0; i < 12; i++) { session.Seek(2000 + i * 300); await Task.Delay(100); }
+                for (int i = 0; i < 100; i++) { session.Seek(2000 + i % 13 * 300); await Task.Delay(30); }
             }
             finally { CompositionTarget.Rendering -= render; }
             frames.Sort();

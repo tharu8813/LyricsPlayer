@@ -33,7 +33,7 @@ namespace LyricsPlayer.Parsers {
                 }
 
                 if (!TryParseTimeSpan(timeMatch, 1, out var start) ||
-                    !TryParseTimeSpan(timeMatch, 5, out var end)) continue;
+                    !TryParseTimeSpan(timeMatch, 5, out var end) || end < start) continue;
 
                 string lyric = string.Join("\n", lines.Skip(timeLineIndex + 1)).Trim();
                 if (string.IsNullOrWhiteSpace(lyric)) continue;
@@ -52,8 +52,9 @@ namespace LyricsPlayer.Parsers {
                 int.TryParse(m.Groups[groupOffset + 1].Value, out int min) &&
                 int.TryParse(m.Groups[groupOffset + 2].Value, out int s) &&
                 int.TryParse(m.Groups[groupOffset + 3].Value, out int ms)) {
-                result = new TimeSpan(0, h, min, s, ms);
-                return true;
+                if (min > 59 || s > 59 || ms > 999) return false;
+                try { result = new TimeSpan(0, h, min, s, ms); return true; }
+                catch (ArgumentOutOfRangeException) { return false; }
             }
             return false;
         }
